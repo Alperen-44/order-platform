@@ -36,6 +36,16 @@ CREATE TABLE outbox (
 
 CREATE INDEX ix_outbox_unpublished ON outbox (created_at) WHERE published_at IS NULL;
 
+-- Faz 3: Idempotent consumer. Bu servisin Kafka'dan işlediği olaylar.
+-- İş mantığının değişikliğiyle AYNI transaction'da yazılır; aynı eventId tekrar gelirse atlanır.
+CREATE TABLE processed_events (
+    consumer_group  VARCHAR(100) NOT NULL,
+    event_id        UUID         NOT NULL,
+    event_type      VARCHAR(100) NOT NULL,
+    processed_at    TIMESTAMPTZ  NOT NULL,
+    PRIMARY KEY (consumer_group, event_id)
+);
+
 -- Deneme verisi. Sabit ID'ler sayesinde scriptlerde ve Swagger'da kolayca kullanılır.
 INSERT INTO stock (product_id, sku, name, available, reserved, updated_at) VALUES
     ('11111111-1111-1111-1111-111111111111', 'KB-MECH-01',  'Mekanik Klavye',              50,  0, now()),

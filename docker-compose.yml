@@ -79,6 +79,11 @@ services:
           /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 \
             --create --if-not-exists --topic "$$topic" --partitions 3 --replication-factor 1
         done
+        # Faz 3: her consumer group'un kendi Dead Letter Queue'su
+        for topic in order-service.dlq inventory-service.dlq; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 \
+            --create --if-not-exists --topic "$$topic" --partitions 1 --replication-factor 1
+        done
         echo "Kafka topics ready"
     restart: "no"
 

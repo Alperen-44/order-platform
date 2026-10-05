@@ -39,3 +39,36 @@ wait_for_status() {
 unpublished_count() {
   curl -fsS "$ORDER_URL/debug/outbox" | grep -o '"publishedAt":null' | wc -l | tr -d ' '
 }
+
+# available_stock <productId> -> satılabilir adet
+available_stock() {
+  curl -fsS "$INVENTORY_URL/products/$1" | sed -E 's/.*"available":([0-9]+).*/\1/'
+}
+
+# ---------- Kafka yardımcıları (repo kökünden çalıştırılmalı) ----------
+
+# kafka_produce <topic> <satır>
+# Satır biçimi: "baslik1:deger1,baslik2:deger2<TAB>anahtar<TAB>değer"
+kafka_produce() {
+  printf '%s\n' "$2" | docker compose exec -T kafka /opt/kafka/bin/kafka-console-producer.sh \
+    --bootstrap-server kafka:19092 --topic "$1" \
+    --property parse.key=true --property parse.headers=true > /dev/null
+}
+
+# kafka_read <topic> -> topic'teki bütün mesajları başlık ve anahtarlarıyla yazdırır
+kafka_read() {
+  docker compose exec -T kafka /opt/kafka/bin/kafka-console-consumer.sh \
+    --bootstrap-server kafka:19092 --topic "$1" --from-beginning --timeout-ms 8000 \
+    --property print.key=true --property print.headers=true 2> /dev/null || true
+}
+
+# db_query <order|inventory> <sql> -> tek değer döndürür
+db_query() {
+  if [[ "$1" == "order" ]]; then
+    docker compose exec -T order-db psql -U order_user -d orders -tAc "$2"
+  else
+    docker compose exec -T inventory-db psql -U inventory_user -d inventory -tAc "$2"
+  fi
+}
+
+new_uuid() { uuidgen | tr '[:upper:]' '[:lower:]'; }

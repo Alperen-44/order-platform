@@ -1,6 +1,7 @@
 using InventoryService.Domain;
 using InventoryService.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using OrderPlatform.Contracts;
 using OrderPlatform.Messaging.Outbox;
 
@@ -23,9 +24,16 @@ public sealed record ReservationResult(
 
 /// <summary>
 /// Stok rezervasyonunun tüm iş mantığı. Hem REST endpoint'i hem Kafka consumer'ı bu sınıfı kullanır.
+///
+/// Transaction yönetimi:
+/// - REST'ten çağrılınca kendi transaction'ını açar ve commit eder.
+/// - Kafka consumer'ından çağrılınca consumer'ın transaction'ına katılır (processed_events kaydıyla
+///   birlikte commit edilsin diye). Kısmi geri alma için SAVEPOINT kullanır.
 /// </summary>
 public sealed class StockReservationService(InventoryDbContext db)
 {
+    private const string ReserveSavepoint = "reserve_stock";
+
     /// <param name="publishEvents">
     /// true ise sonuç (StockReserved / StockReservationFailed) outbox'a yazılır ve Order servisine gider.
     /// Kafka'dan gelen siparişlerde true, elle yapılan REST denemelerinde false.
@@ -37,13 +45,21 @@ public sealed class StockReservationService(InventoryDbContext db)
         string correlationId,
         CancellationToken ct)
     {
-        // 1) Idempotency: bu sipariş daha önce rezerve edildiyse tekrar düşme, olay da yayınlama.
-        //    (Kafka aynı OrderCreated mesajını iki kez teslim edebilir.)
+        // 1) İş kuralı seviyesinde idempotency: bu sipariş zaten rezerve edildiyse tekrar düşme.
+        //    (Kafka tarafındaki tekrarları processed_events zaten yakalıyor; bu kontrol REST için de geçerli.)
         var existing = await LoadAsync(orderId, ct);
         if (existing.Count > 0)
             return new ReservationResult(ReservationOutcome.AlreadyReserved, existing);
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // Dışarıda açık bir transaction varsa ona katıl, yoksa kendi transaction'ını aç.
+        await using var ownTx = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(ct)
+            : null;
+        IDbContextTransaction tx = db.Database.CurrentTransaction!;
+
+        // SAVEPOINT: yetersiz stokta yalnızca BU metodun yaptıklarını geri alabilmek için.
+        // (Tüm transaction'ı geri alsaydık consumer'ın açtığı transaction da giderdi.)
+        await tx.CreateSavepointAsync(ReserveSavepoint, ct);
         var now = DateTimeOffset.UtcNow;
 
         // 2) Ürünleri hep aynı sırada kilitle: deadlock önleme.
@@ -63,7 +79,7 @@ public sealed class StockReservationService(InventoryDbContext db)
             if (affected == 0)
             {
                 // Ya hep ya hiç: önceki kalemlerin düşüşünü de geri al.
-                await tx.RollbackAsync(ct);
+                await tx.RollbackToSavepointAsync(ReserveSavepoint, ct);
                 db.ChangeTracker.Clear();
 
                 var productExists = await db.Stock.AnyAsync(s => s.ProductId == productId, ct);
@@ -80,6 +96,7 @@ public sealed class StockReservationService(InventoryDbContext db)
                     await db.SaveChangesAsync(ct);
                 }
 
+                if (ownTx is not null) await ownTx.CommitAsync(ct);
                 return new ReservationResult(outcome, [], reason);
             }
 
@@ -97,12 +114,13 @@ public sealed class StockReservationService(InventoryDbContext db)
         try
         {
             await db.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
+            if (ownTx is not null) await ownTx.CommitAsync(ct);
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             // 5) Aynı sipariş için eşzamanlı ikinci istek: UNIQUE(order_id, product_id) yakaladı.
-            await tx.RollbackAsync(CancellationToken.None);
+            //    Bu metodun yaptığı stok düşüşlerini geri al, kazanan isteğin sonucunu dön.
+            await tx.RollbackToSavepointAsync(ReserveSavepoint, CancellationToken.None);
             db.ChangeTracker.Clear();
             return new ReservationResult(ReservationOutcome.AlreadyReserved, await LoadAsync(orderId, ct));
         }
@@ -116,7 +134,9 @@ public sealed class StockReservationService(InventoryDbContext db)
         var reservations = await LoadAsync(orderId, ct);
         if (reservations.Count == 0) return null;
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await using var ownTx = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(ct)
+            : null;
         var now = DateTimeOffset.UtcNow;
 
         foreach (var reservation in reservations
@@ -144,7 +164,7 @@ public sealed class StockReservationService(InventoryDbContext db)
                     .SetProperty(s => s.UpdatedAt, now), ct);
         }
 
-        await tx.CommitAsync(ct);
+        if (ownTx is not null) await ownTx.CommitAsync(ct);
         return await LoadAsync(orderId, ct);
     }
 

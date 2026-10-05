@@ -3,8 +3,9 @@
 Sipariş, stok, ödeme ve bildirim servislerinin Kafka üzerinden mesajlaşarak çalıştığı,
 **hata, tekrar ve yarıda kalma durumlarında tutarlı kalan** bir backend sistemi.
 
-> **Durum:** Faz 2 tamamlandı. Servisler Kafka üzerinden mesajlaşıyor: sipariş verildiğinde stok
-> otomatik rezerve ediliyor, sonuç olay olarak Order'a dönüyor. Sırada ödeme adımı (Faz 4) var.
+> **Durum:** Faz 3 tamamlandı. Servisler Kafka üzerinden mesajlaşıyor; her olay tam olarak bir kez
+> işleniyor (`processed_events`), işlenemeyen mesajlar Dead Letter Queue'ya gidiyor.
+> Sırada ödeme adımı ve telafi işlemleri (Faz 4) var.
 
 ## Mimari (hedef)
 
@@ -51,6 +52,8 @@ docker compose up --build -d      # her şeyi ayağa kaldır
 ./scripts/smoke-test.sh           # uçtan uca olay akışı
 ./scripts/race-test.sh 100        # "son ürün" eşzamanlılık testi
 ./scripts/kafka-outage-test.sh    # Kafka kapalıyken sipariş kaybolmuyor mu?
+./scripts/duplicate-event-test.sh # aynı olay 3 kez gelirse bir kez mi işleniyor?
+./scripts/poison-message-test.sh  # bozuk mesaj DLQ'ya gidiyor, sistem kilitlenmiyor mu?
 ```
 
 | Adres | Ne var |
@@ -68,7 +71,7 @@ order-platform/
 │   └── inventory-service/     # stok, rezervasyon, OrderCreated'ı dinler
 ├── shared/
 │   ├── OrderPlatform.Contracts/   # olay sözleşmeleri (EventEnvelope, OrderCreated, StockReserved...)
-│   └── OrderPlatform.Messaging/   # Kafka producer, OutboxRelay, KafkaConsumerService
+│   └── OrderPlatform.Messaging/   # Kafka producer, OutboxRelay, idempotent consumer + DLQ
 ├── scripts/                   # smoke, race ve Kafka kesinti testleri
 ├── docs/adr/                  # mimari karar kayıtları
 └── docker-compose.yml
@@ -102,9 +105,17 @@ WHERE product_id = @id AND available >= @q;   -- etkilenen satır 0 ise: yetersi
 ### 5. Kafka tarafı
 - **Mesaj anahtarı = `orderId`:** Aynı siparişin olayları aynı partition'a düşer ve sırası korunur.
 - **Manuel offset commit:** Offset, mesaj başarıyla işlendikten sonra commit ediliyor. İşlerken çökersek mesaj tekrar gelir, kaybolmaz.
-- **Retry:** Başarısız mesaj artan beklemeyle (400 ms → 3,2 sn) 5 kez deneniyor.
+- **Retry ve DLQ:** Geçici hatalar artan beklemeyle (400 ms → 3,2 sn) 5 kez deneniyor, sonra consumer'ın
+  kendi Dead Letter Queue'suna (`inventory-service.dlq`) gidiyor. Bozuk JSON gibi zehirli mesajlar
+  tekrar denenmeden doğrudan DLQ'ya gidiyor. DLQ'ya yazılamazsa offset commit edilmiyor.
 - **Idempotent producer** (`EnableIdempotence`, `Acks.All`): Ağ hatasında yeniden gönderim Kafka'da kopya üretmiyor.
-- **Durum makinesi = doğal idempotency:** `MarkStockReserved()` yalnızca `Pending` durumunda çalışıyor. Aynı olay iki kez gelirse ikinci seferde hiçbir şey değişmiyor.
+- **Durum makinesi:** `MarkStockReserved()` yalnızca `Pending` durumunda çalışıyor; sırası karışan olaylar durumu geri alamıyor.
+
+### 6. Idempotent consumer (`processed_events`)
+Her tüketici işlediği `eventId` değerlerini, iş mantığının değişikliğiyle **aynı transaction'da**
+`processed_events` tablosuna yazıyor. Aynı olay tekrar gelirse atlanıyor. Stok rezervasyonu kendi
+transaction'ını açmak yerine bu transaction'a katılıyor ve kısmi geri alma için `SAVEPOINT` kullanıyor
+(bkz. ADR 0004).
 
 Detaylar: [`docs/adr`](docs/adr)
 
@@ -133,7 +144,7 @@ BAŞARILI: 100 istekten yalnızca 1 tanesi ürünü aldı.
 
 - [x] **Faz 1:** Order + Inventory servisleri, ayrı DB'ler, outbox tablosu, atomik rezervasyon
 - [x] **Faz 2:** Kafka entegrasyonu, outbox relay, saga'nın ilk adımı (stok rezervasyonu)
-- [ ] **Faz 3:** Idempotent consumer, retry ve DLQ
+- [x] **Faz 3:** Idempotent consumer, retry ve DLQ
 - [ ] **Faz 4:** Payment servisi, telafi işlemleri, zaman aşımı; Notification servisi
 - [ ] **Faz 5:** API Gateway (YARP), Keycloak, Idempotency-Key başlığı
 - [ ] **Faz 6:** Testcontainers ile entegrasyon testleri, GitHub Actions CI
@@ -142,8 +153,7 @@ BAŞARILI: 100 istekten yalnızca 1 tanesi ürünü aldı.
 
 ## Bilinen sınırlamalar
 - Fiyat istemciden geliyor; gerçek sistemde katalog servisinden alınmalı.
-- 5 denemede işlenemeyen mesaj loglanıp atlanıyor. Faz 3'te Dead Letter Queue'ya gidecek.
-- Tüketicilerde genel bir `processed_events` tablosu yok. Idempotency şimdilik iş kurallarına dayanıyor
-  (rezervasyonda `orderId` kontrolü, Order'da durum makinesi). Faz 3'te eklenecek.
+- DLQ'daki mesajları tekrar oynatmak için henüz bir araç yok (elle yapılıyor).
+- `processed_events` tablosu temizlenmiyor; gerçek sistemde eski kayıtlar silinmeli.
 - Rezervasyonların süre aşımı (TTL) yok.
 - Şema SQL init script'iyle oluşturuluyor (bkz. ADR 0002).

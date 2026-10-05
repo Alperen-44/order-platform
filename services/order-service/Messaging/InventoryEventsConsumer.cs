@@ -1,3 +1,4 @@
+using Confluent.Kafka;
 using Microsoft.Extensions.Options;
 using OrderPlatform.Contracts;
 using OrderPlatform.Messaging;
@@ -11,12 +12,14 @@ namespace OrderService.Messaging;
 /// inventory.events topic'ini dinler ve saga'yı ilerletir:
 ///   StockReserved          → sipariş StockReserved olur (Faz 4'te sırada ödeme var)
 ///   StockReservationFailed → sipariş Cancelled olur
+/// Durum değişikliği ve processed_events kaydı tek transaction'da yazılır.
 /// </summary>
 public sealed class InventoryEventsConsumer(
     IServiceScopeFactory scopeFactory,
     IOptions<KafkaOptions> kafkaOptions,
+    IProducer<string, string> producer,
     ILogger<InventoryEventsConsumer> logger)
-    : KafkaConsumerService(scopeFactory, kafkaOptions, logger)
+    : KafkaConsumerService<OrderDbContext>(scopeFactory, kafkaOptions, producer, logger)
 {
     protected override string Topic => Topics.InventoryEvents;
     protected override string GroupId => "order-service";
@@ -55,12 +58,13 @@ public sealed class InventoryEventsConsumer(
         var previous = order.Status;
         if (!transition(order))
         {
-            // Tekrar gelen ya da sırası geçmiş olay: durum zaten ilerlemiş, dokunma.
+            // Sırası geçmiş olay: durum zaten ilerlemiş, dokunma.
             Logger.LogInformation("{EventType} ignored for order {OrderId} in status {Status}",
                 message.EventType, orderId, order.Status);
             return;
         }
 
+        // Commit'i KafkaConsumerService yapıyor (processed_events kaydıyla birlikte).
         await db.SaveChangesAsync(ct);
         Logger.LogInformation("Order {OrderId}: {Previous} -> {Current}", orderId, previous, order.Status);
     }

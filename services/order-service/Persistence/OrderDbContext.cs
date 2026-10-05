@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OrderPlatform.Messaging.Consuming;
 using OrderPlatform.Messaging.Outbox;
 using OrderService.Domain;
 
@@ -32,5 +33,6 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
         });
 
         modelBuilder.AddOutbox();
+        modelBuilder.AddProcessedEvents();
     }
 }

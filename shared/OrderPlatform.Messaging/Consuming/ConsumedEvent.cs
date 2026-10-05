@@ -16,13 +16,25 @@ public sealed record ConsumedEvent(
     public static ConsumedEvent From(ConsumeResult<string, string> result) => new(
         result.Message.Key,
         ReadHeader(result.Message.Headers, MessageHeaders.EventType) ?? "Unknown",
-        ReadHeader(result.Message.Headers, MessageHeaders.EventId) ?? "unknown",
-        result.Message.Value,
+        ReadHeader(result.Message.Headers, MessageHeaders.EventId) ?? "",
+        result.Message.Value ?? "",
         result.TopicPartitionOffset);
 
-    public EventEnvelope<TPayload> Deserialize<TPayload>() =>
-        JsonSerializer.Deserialize<EventEnvelope<TPayload>>(Payload, EventJson.Options)
-        ?? throw new InvalidOperationException($"Could not deserialize {EventType} event {EventId}");
+    /// <summary>Payload'ı açar. Bozuk JSON tekrar denemeyle düzelmeyeceği için PoisonMessageException fırlatır.</summary>
+    public EventEnvelope<TPayload> Deserialize<TPayload>()
+    {
+        try
+        {
+            var envelope = JsonSerializer.Deserialize<EventEnvelope<TPayload>>(Payload, EventJson.Options);
+            if (envelope is null || envelope.Payload is null)
+                throw new PoisonMessageException($"{EventType} {EventId} has an empty payload");
+            return envelope;
+        }
+        catch (JsonException ex)
+        {
+            throw new PoisonMessageException($"{EventType} {EventId} is not valid JSON: {ex.Message}", ex);
+        }
+    }
 
     private static string? ReadHeader(Headers? headers, string key)
     {

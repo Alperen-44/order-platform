@@ -1,5 +1,6 @@
 using InventoryService.Domain;
 using Microsoft.EntityFrameworkCore;
+using OrderPlatform.Messaging.Consuming;
 using OrderPlatform.Messaging.Outbox;
 
 namespace InventoryService.Persistence;
@@ -30,5 +31,6 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
         });
 
         modelBuilder.AddOutbox();
+        modelBuilder.AddProcessedEvents();
     }
 }
