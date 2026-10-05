@@ -4,6 +4,7 @@ WORKDIR /src
 
 COPY Directory.Build.props ./
 COPY shared/OrderPlatform.Contracts/OrderPlatform.Contracts.csproj shared/OrderPlatform.Contracts/
+COPY shared/OrderPlatform.Messaging/OrderPlatform.Messaging.csproj shared/OrderPlatform.Messaging/
 COPY services/inventory-service/InventoryService.csproj services/inventory-service/
 RUN dotnet restore services/inventory-service/InventoryService.csproj
 

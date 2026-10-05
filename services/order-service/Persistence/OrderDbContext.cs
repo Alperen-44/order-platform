@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using OrderPlatform.Messaging.Outbox;
 using OrderService.Domain;
-using OrderService.Outbox;
 
 namespace OrderService.Persistence;
 
@@ -19,6 +19,7 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
             e.HasKey(o => o.Id);
             e.Property(o => o.Status).HasConversion<string>().HasMaxLength(32);
             e.Property(o => o.TotalAmount).HasPrecision(12, 2);
+            e.Property(o => o.CancellationReason).HasMaxLength(500);
             e.HasMany(o => o.Items).WithOne().HasForeignKey(i => i.OrderId);
             e.Navigation(o => o.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
         });
@@ -30,12 +31,6 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
             e.Property(i => i.UnitPrice).HasPrecision(12, 2);
         });
 
-        modelBuilder.Entity<OutboxMessage>(e =>
-        {
-            e.ToTable("outbox");
-            e.HasKey(m => m.Id);
-            e.Property(m => m.EventType).HasMaxLength(100);
-            e.Property(m => m.Payload).HasColumnType("jsonb");
-        });
+        modelBuilder.AddOutbox();
     }
 }

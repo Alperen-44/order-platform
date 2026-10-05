@@ -1,5 +1,6 @@
 using InventoryService.Domain;
 using Microsoft.EntityFrameworkCore;
+using OrderPlatform.Messaging.Outbox;
 
 namespace InventoryService.Persistence;
 
@@ -7,6 +8,7 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
 {
     public DbSet<StockItem> Stock => Set<StockItem>();
     public DbSet<StockReservation> Reservations => Set<StockReservation>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,5 +28,7 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
             e.Property(r => r.Status).HasConversion<string>().HasMaxLength(32);
             e.HasIndex(r => new { r.OrderId, r.ProductId }).IsUnique();
         });
+
+        modelBuilder.AddOutbox();
     }
 }

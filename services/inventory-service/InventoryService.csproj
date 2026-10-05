@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../shared/OrderPlatform.Contracts/OrderPlatform.Contracts.csproj" />
+    <ProjectReference Include="../../shared/OrderPlatform.Messaging/OrderPlatform.Messaging.csproj" />
   </ItemGroup>
 
 </Project>

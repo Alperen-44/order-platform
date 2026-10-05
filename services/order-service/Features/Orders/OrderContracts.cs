@@ -39,6 +39,7 @@ public sealed record OrderResponse(
     Guid CustomerId,
     OrderStatus Status,
     decimal TotalAmount,
+    string? CancellationReason,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     IReadOnlyList<OrderItemResponse> Items)
@@ -48,6 +49,7 @@ public sealed record OrderResponse(
         order.CustomerId,
         order.Status,
         order.TotalAmount,
+        order.CancellationReason,
         order.CreatedAt,
         order.UpdatedAt,
         order.Items.Select(i => new OrderItemResponse(i.ProductId, i.Quantity, i.UnitPrice)).ToList());

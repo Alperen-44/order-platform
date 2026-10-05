@@ -5,6 +5,7 @@ WORKDIR /src
 # Önce yalnızca proje dosyaları: kod değişince NuGet restore katmanı cache'ten gelir
 COPY Directory.Build.props ./
 COPY shared/OrderPlatform.Contracts/OrderPlatform.Contracts.csproj shared/OrderPlatform.Contracts/
+COPY shared/OrderPlatform.Messaging/OrderPlatform.Messaging.csproj shared/OrderPlatform.Messaging/
 COPY services/order-service/OrderService.csproj services/order-service/
 RUN dotnet restore services/order-service/OrderService.csproj
 

@@ -23,6 +23,19 @@ CREATE TABLE stock_reservations (
 
 CREATE INDEX ix_reservations_order_id ON stock_reservations (order_id);
 
+-- Faz 2: Inventory de olay yayınlıyor (StockReserved / StockReservationFailed).
+-- Order servisindeki outbox ile aynı şema; ortak OutboxRelay ikisini de okuyabiliyor.
+CREATE TABLE outbox (
+    id            UUID PRIMARY KEY,
+    aggregate_id  UUID         NOT NULL,
+    event_type    VARCHAR(100) NOT NULL,
+    payload       JSONB        NOT NULL,
+    created_at    TIMESTAMPTZ  NOT NULL,
+    published_at  TIMESTAMPTZ
+);
+
+CREATE INDEX ix_outbox_unpublished ON outbox (created_at) WHERE published_at IS NULL;
+
 -- Deneme verisi. Sabit ID'ler sayesinde scriptlerde ve Swagger'da kolayca kullanılır.
 INSERT INTO stock (product_id, sku, name, available, reserved, updated_at) VALUES
     ('11111111-1111-1111-1111-111111111111', 'KB-MECH-01',  'Mekanik Klavye',              50,  0, now()),

@@ -6,6 +6,7 @@ CREATE TABLE orders (
     customer_id   UUID           NOT NULL,
     status        VARCHAR(32)    NOT NULL,
     total_amount  NUMERIC(12, 2) NOT NULL CHECK (total_amount >= 0),
+    cancellation_reason VARCHAR(500),         -- Faz 2: stok yetersizse neden iptal edildiği
     created_at    TIMESTAMPTZ    NOT NULL,
     updated_at    TIMESTAMPTZ    NOT NULL
 );
@@ -21,7 +22,7 @@ CREATE TABLE order_items (
 CREATE INDEX ix_order_items_order_id ON order_items (order_id);
 
 -- Outbox: sipariş ile "OrderCreated" olayı AYNI transaction içinde yazılır.
--- Faz 2'de bir relay bu tablodan okuyup Kafka'ya gönderecek.
+-- OutboxRelay bu tablodan okuyup Kafka'ya (order.events) gönderir.
 CREATE TABLE outbox (
     id            UUID PRIMARY KEY,          -- = eventId
     aggregate_id  UUID         NOT NULL,     -- = orderId (Kafka mesaj anahtarı olacak)

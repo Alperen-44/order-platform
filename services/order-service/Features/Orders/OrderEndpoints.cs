@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using OrderPlatform.Contracts;
 using OrderService.Domain;
-using OrderService.Outbox;
+using OrderPlatform.Messaging.Outbox;
 using OrderService.Persistence;
 
 namespace OrderService.Features.Orders;

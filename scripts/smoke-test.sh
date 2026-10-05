@@ -1,49 +1,52 @@
 #!/usr/bin/env bash
-# Faz 1 duman testi: servisler ayakta mı, temel akış çalışıyor mu?
+# Faz 2 duman testi: sipariş Kafka üzerinden Inventory'ye gidiyor, sonuç Order'a geri dönüyor mu?
 # Kullanım: ./scripts/smoke-test.sh
 set -euo pipefail
-
-ORDER_URL="${ORDER_URL:-http://localhost:5001}"
-INVENTORY_URL="${INVENTORY_URL:-http://localhost:5002}"
-KEYBOARD="11111111-1111-1111-1111-111111111111"
-CUSTOMER="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-
-step() { printf '\n\033[1;34m== %s\033[0m\n' "$1"; }
+source "$(dirname "$0")/lib.sh"
 
 step "1) Sağlık kontrolleri"
 curl -fsS "$ORDER_URL/health"; echo "  <- order-service"
 curl -fsS "$INVENTORY_URL/health"; echo "  <- inventory-service"
 
-step "2) Ürünler ve stok"
-curl -fsS "$INVENTORY_URL/products"; echo
+step "2) Stok durumu (önce)"
+curl -fsS "$INVENTORY_URL/products/$KEYBOARD"; echo
 
-step "3) Sipariş oluştur (2 x Mekanik Klavye)"
-ORDER_JSON=$(curl -fsS -X POST "$ORDER_URL/orders" \
+step "3) Sipariş oluştur: 2 x Mekanik Klavye (yanıt hemen döner, durum Pending)"
+ORDER_ID=$(create_order "$KEYBOARD" 2)
+echo "orderId = $ORDER_ID, durum = $(order_status "$ORDER_ID")"
+
+step "4) Saga: Order → Kafka → Inventory → Kafka → Order (beklenen: StockReserved)"
+if STATUS=$(wait_for_status "$ORDER_ID" StockReserved 30); then
+  ok "Sipariş durumu: $STATUS"
+else
+  fail "Sipariş 30 sn içinde StockReserved olmadı (son durum: $STATUS). Loglar: docker compose logs order-service inventory-service"
+fi
+
+step "5) Inventory tarafında rezervasyon otomatik oluştu mu?"
+curl -fsS "$INVENTORY_URL/reservations/$ORDER_ID"; echo
+curl -fsS "$INVENTORY_URL/products/$KEYBOARD"; echo
+
+step "6) Outbox: olay Kafka'ya gönderildi mi? (beklenen: bekleyen olay 0)"
+PENDING=$(unpublished_count)
+[[ "$PENDING" == "0" ]] && ok "Outbox'ta bekleyen olay yok" || fail "Outbox'ta $PENDING olay bekliyor"
+
+step "7) Yetersiz stok: 1000 x Mekanik Klavye (beklenen: Cancelled)"
+BIG_ORDER=$(create_order "$KEYBOARD" 1000)
+if STATUS=$(wait_for_status "$BIG_ORDER" Cancelled 30); then
+  ok "Sipariş durumu: $STATUS"
+  curl -fsS "$ORDER_URL/orders/$BIG_ORDER" | sed -E 's/.*"cancellationReason":"([^"]*)".*/   sebep: \1/'
+else
+  fail "Sipariş Cancelled olmadı (son durum: $STATUS)"
+fi
+
+step "8) Idempotency: aynı sipariş için rezervasyon tekrar istenirse (beklenen: 200, stok değişmez)"
+curl -sS -o /dev/null -w "HTTP %{http_code}\n" -X POST "$INVENTORY_URL/reservations" \
   -H 'Content-Type: application/json' \
-  -d "{\"customerId\":\"$CUSTOMER\",\"items\":[{\"productId\":\"$KEYBOARD\",\"quantity\":2,\"unitPrice\":1500}]}")
-echo "$ORDER_JSON"
-ORDER_ID=$(echo "$ORDER_JSON" | sed -E 's/.*"id":"([^"]+)".*/\1/')
-echo "orderId = $ORDER_ID"
-
-step "4) Siparişi oku"
-curl -fsS "$ORDER_URL/orders/$ORDER_ID"; echo
-
-step "5) Outbox: OrderCreated olayı siparişle aynı transaction'da yazıldı mı?"
-curl -fsS "$ORDER_URL/debug/outbox" | head -c 600; echo " ..."
-
-step "6) Stok rezerve et (beklenen: 201)"
-RESERVE_BODY="{\"orderId\":\"$ORDER_ID\",\"items\":[{\"productId\":\"$KEYBOARD\",\"quantity\":2}]}"
-curl -sS -o /dev/null -w "HTTP %{http_code}\n" -X POST "$INVENTORY_URL/reservations" \
-  -H 'Content-Type: application/json' -d "$RESERVE_BODY"
-
-step "7) Aynı isteği tekrar gönder (beklenen: 200, stok İKİNCİ KEZ düşmemeli)"
-curl -sS -o /dev/null -w "HTTP %{http_code}\n" -X POST "$INVENTORY_URL/reservations" \
-  -H 'Content-Type: application/json' -d "$RESERVE_BODY"
+  -d "{\"orderId\":\"$ORDER_ID\",\"items\":[{\"productId\":\"$KEYBOARD\",\"quantity\":2}]}"
 curl -fsS "$INVENTORY_URL/products/$KEYBOARD"; echo
 
-step "8) Telafi: rezervasyonu bırak (iki kez; stok yalnızca bir kez geri gelmeli)"
-curl -fsS -X POST "$INVENTORY_URL/reservations/$ORDER_ID/release"; echo
-curl -fsS -X POST "$INVENTORY_URL/reservations/$ORDER_ID/release"; echo
+step "9) Temizlik: rezervasyonu bırak (test tekrarlanabilsin diye)"
+curl -fsS -o /dev/null -X POST "$INVENTORY_URL/reservations/$ORDER_ID/release"
 curl -fsS "$INVENTORY_URL/products/$KEYBOARD"; echo
 
-printf '\n\033[1;32mTamam: temel akış çalışıyor.\033[0m\n'
+printf '\n\033[1;32mTamam: olay güdümlü akış çalışıyor.\033[0m\n'

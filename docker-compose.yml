@@ -37,7 +37,6 @@ services:
       retries: 10
 
   # ---------- Mesajlaşma: Kafka (KRaft modu, Zookeeper yok) ----------
-  # Faz 1'de servisler henüz Kafka kullanmıyor; Faz 2'de bağlanacağız.
   kafka:
     image: apache/kafka:3.8.0
     ports:
@@ -56,7 +55,32 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"   # topic'leri bilinçli olarak kafka-init oluşturuyor
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:19092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
+
+  # Topic'leri bir kez oluşturup kapanan yardımcı container.
+  # 3 partition: aynı siparişin olayları aynı partition'a düşer (anahtar = orderId),
+  # farklı siparişler paralel işlenebilir.
+  kafka-init:
+    image: apache/kafka:3.8.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for topic in order.events inventory.events; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 \
+            --create --if-not-exists --topic "$$topic" --partitions 3 --replication-factor 1
+        done
+        echo "Kafka topics ready"
+    restart: "no"
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -78,9 +102,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__OrderDb: "Host=order-db;Port=5432;Database=orders;Username=order_user;Password=order_pass"
+      Kafka__BootstrapServers: "kafka:19092"
     depends_on:
       order-db:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
 
   inventory-service:
     build:
@@ -91,9 +118,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__InventoryDb: "Host=inventory-db;Port=5432;Database=inventory;Username=inventory_user;Password=inventory_pass"
+      Kafka__BootstrapServers: "kafka:19092"
     depends_on:
       inventory-db:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
 
 volumes:
   order-db-data:
