@@ -2,7 +2,7 @@
 # Outbox pattern'in kanıtı: Kafka kapalıyken verilen siparişler kaybolmuyor.
 #   1) Kafka'yı durdur
 #   2) Sipariş vermeye devam et → API çalışmaya devam eder, olaylar outbox'ta birikir
-#   3) Kafka'yı geri başlat → relay biriken olayları gönderir, siparişler StockReserved olur
+#   3) Kafka'yı geri başlat → relay biriken olayları gönderir, saga tamamlanır, siparişler Confirmed olur
 # Kullanım: ./scripts/kafka-outage-test.sh [sipariş_sayısı]   (varsayılan 5)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -31,23 +31,18 @@ step "4) Kafka yeniden başlatılıyor"
 docker compose start kafka
 echo "Relay ve consumer'lar yeniden bağlanıyor (30-60 sn sürebilir)..."
 
-step "5) Bütün siparişler StockReserved olmalı"
+step "5) Bütün siparişler Confirmed olmalı"
 FAILED=0
 for id in "${ORDERS[@]}"; do
-  if status=$(wait_for_status "$id" StockReserved 90); then
+  if status=$(wait_for_status "$id" Confirmed 90); then
     echo "  $id -> $status"
   else
-    echo "  $id -> $status  (beklenen StockReserved)"
+    echo "  $id -> $status  (beklenen Confirmed)"
     FAILED=$((FAILED + 1))
   fi
 done
 
 echo "Outbox'ta bekleyen olay: $(unpublished_count)"
-
-step "6) Temizlik: rezervasyonları bırak"
-for id in "${ORDERS[@]}"; do
-  curl -fsS -o /dev/null -X POST "$INVENTORY_URL/reservations/$id/release" || true
-done
 
 if (( FAILED == 0 )); then
   printf '\n\033[1;32mBAŞARILI: Kafka kesintisinde verilen %s siparişin hiçbiri kaybolmadı.\033[0m\n' "$N"

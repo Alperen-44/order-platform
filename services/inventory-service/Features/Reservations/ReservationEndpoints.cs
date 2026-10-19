@@ -16,7 +16,7 @@ public sealed record ReservationResponse(Guid OrderId, IReadOnlyList<Reservation
 
 /// <summary>
 /// Faz 2'den itibaren rezervasyonlar Kafka'dan gelen OrderCreated olayıyla otomatik yapılıyor
-/// (bkz. Messaging/OrderCreatedConsumer). Bu endpoint'ler elle deneme ve yarış testi için duruyor;
+/// (bkz. Messaging/OrderEventsConsumer). Bu endpoint'ler elle deneme ve yarış testi için duruyor;
 /// buradan yapılan rezervasyonlar olay YAYINLAMAZ.
 /// </summary>
 public static class ReservationEndpoints

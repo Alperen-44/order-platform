@@ -128,7 +128,54 @@ public sealed class StockReservationService(InventoryDbContext db)
         return new ReservationResult(ReservationOutcome.Reserved, await LoadAsync(orderId, ct));
     }
 
-    /// <summary>Telafi işlemi. Birden fazla kez çağrılması güvenlidir.</summary>
+    /// <summary>
+    /// Sipariş onaylandı: rezervasyon kesinleşir. Ayrılmış adet "reserved"dan düşer
+    /// (available zaten rezervasyon anında düşmüştü). Birden fazla kez çağrılması güvenlidir.
+    /// </summary>
+    public async Task<int> CommitAsync(Guid orderId, CancellationToken ct)
+    {
+        var reservations = await LoadAsync(orderId, ct);
+        if (reservations.Count == 0) return 0;
+
+        await using var ownTx = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(ct)
+            : null;
+        var now = DateTimeOffset.UtcNow;
+        var committed = 0;
+
+        foreach (var reservation in reservations
+                     .Where(r => r.Status == ReservationStatus.Reserved)
+                     .OrderBy(r => r.ProductId))
+        {
+            var reservationId = reservation.Id;
+            var productId = reservation.ProductId;
+            var quantity = reservation.Quantity;
+
+            var changed = await db.Reservations
+                .Where(r => r.Id == reservationId && r.Status == ReservationStatus.Reserved)
+                .ExecuteUpdateAsync(set => set
+                    .SetProperty(r => r.Status, ReservationStatus.Committed)
+                    .SetProperty(r => r.UpdatedAt, now), ct);
+
+            if (changed == 0) continue;
+
+            await db.Stock
+                .Where(s => s.ProductId == productId)
+                .ExecuteUpdateAsync(set => set
+                    .SetProperty(s => s.Reserved, s => s.Reserved - quantity)
+                    .SetProperty(s => s.UpdatedAt, now), ct);
+
+            committed++;
+        }
+
+        if (ownTx is not null) await ownTx.CommitAsync(ct);
+        return committed;
+    }
+
+    /// <summary>
+    /// Telafi işlemi: ayrılmış stoğu geri bırakır. Sipariş iptal edilince (OrderCancelled) çağrılır.
+    /// Birden fazla kez çağrılması güvenlidir; kesinleşmiş (Committed) rezervasyonlara dokunmaz.
+    /// </summary>
     public async Task<IReadOnlyList<StockReservation>?> ReleaseAsync(Guid orderId, CancellationToken ct)
     {
         var reservations = await LoadAsync(orderId, ct);

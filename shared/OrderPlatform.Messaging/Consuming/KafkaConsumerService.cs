@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 namespace OrderPlatform.Messaging.Consuming;
 
 /// <summary>
-/// Kafka tüketicileri için temel sınıf. Alt sınıf yalnızca topic, consumer group ve
+/// Kafka tüketicileri için temel sınıf. Alt sınıf yalnızca topic'leri, consumer group'u ve
 /// mesajın nasıl işleneceğini söyler. Döngü, idempotency, retry, DLQ ve offset yönetimi burada.
 ///
 /// Her mesaj için:
@@ -31,7 +31,8 @@ public abstract class KafkaConsumerService<TDbContext>(
 
     protected ILogger Logger { get; } = logger;
 
-    protected abstract string Topic { get; }
+    /// <summary>Dinlenecek topic'ler. Bir consumer birden fazla topic'i dinleyebilir.</summary>
+    protected abstract string[] SubscribedTopics { get; }
     protected abstract string GroupId { get; }
 
     /// <summary>Her consumer group'un kendi DLQ'su var: hata o tüketiciye ait.</summary>
@@ -59,8 +60,8 @@ public abstract class KafkaConsumerService<TDbContext>(
         };
 
         using var consumer = new ConsumerBuilder<string, string>(config).Build();
-        consumer.Subscribe(Topic);
-        Logger.LogInformation("Consumer group {GroupId} subscribed to {Topic}", GroupId, Topic);
+        consumer.Subscribe(SubscribedTopics);
+        Logger.LogInformation("Consumer group {GroupId} subscribed to {Topics}", GroupId, string.Join(", ", SubscribedTopics));
 
         try
         {
@@ -73,7 +74,7 @@ public abstract class KafkaConsumerService<TDbContext>(
                 }
                 catch (ConsumeException ex)
                 {
-                    Logger.LogWarning("Consume error on {Topic}: {Reason}", Topic, ex.Error.Reason);
+                    Logger.LogWarning("Consume error for {GroupId}: {Reason}", GroupId, ex.Error.Reason);
                     await Task.Delay(TimeSpan.FromSeconds(1), ct);
                     continue;
                 }

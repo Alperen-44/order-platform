@@ -31,12 +31,11 @@ fi
 
 step "3) Tüketici kilitlenmedi mi? Arkasından gelen sipariş işlenmeli"
 ORDER_ID=$(create_order "$KEYBOARD" 1)
-if STATUS=$(wait_for_status "$ORDER_ID" StockReserved 30); then
+if STATUS=$(wait_for_status "$ORDER_ID" Confirmed 30); then
   ok "Yeni sipariş: $STATUS"
 else
   fail "Yeni sipariş işlenmedi (son durum: $STATUS)"
 fi
-curl -fsS -o /dev/null -X POST "$INVENTORY_URL/reservations/$ORDER_ID/release"
 
 step "4) Bozuk mesaj processed_events'e yazılmamış olmalı"
 COUNT=$(db_query inventory "SELECT count(*) FROM processed_events WHERE event_id = '$EVENT_ID'")

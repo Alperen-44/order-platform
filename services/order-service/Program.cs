@@ -5,6 +5,7 @@ using OrderPlatform.Messaging;
 using OrderService.Features.Orders;
 using OrderService.Messaging;
 using OrderService.Persistence;
+using OrderService.Saga;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,10 +13,14 @@ builder.Services.AddDbContext<OrderDbContext>(options => options
     .UseNpgsql(builder.Configuration.GetConnectionString("OrderDb"))
     .UseSnakeCaseNamingConvention());
 
-// Mesajlaşma: outbox'taki olayları order.events'e gönder, inventory.events'i dinle.
+// Mesajlaşma: outbox'taki olayları order.events'e gönder; inventory ve payment olaylarını dinleyip saga'yı ilerlet.
 builder.Services.AddKafka(builder.Configuration);
 builder.Services.AddOutboxRelay<OrderDbContext>(Topics.OrderEvents);
-builder.Services.AddHostedService<InventoryEventsConsumer>();
+builder.Services.AddHostedService<SagaEventsConsumer>();
+
+// Saga zaman aşımı: ödeme sonucu gelmeyen siparişleri iptal eder.
+builder.Services.Configure<SagaOptions>(builder.Configuration.GetSection(SagaOptions.SectionName));
+builder.Services.AddHostedService<PaymentTimeoutWatcher>();
 
 // Enum'lar JSON'da sayı değil metin olarak görünsün: "status": "Pending"
 builder.Services.ConfigureHttpJsonOptions(o =>

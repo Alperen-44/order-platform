@@ -21,6 +21,13 @@ public class Order
     public DateTimeOffset UpdatedAt { get; private set; }
     public IReadOnlyCollection<OrderItem> Items => _items;
 
+    /// <summary>
+    /// Optimistic concurrency için PostgreSQL'in xmin sistem kolonu. Satır her güncellendiğinde değişir.
+    /// Zaman aşımı servisi ile ödeme consumer'ı aynı siparişi aynı anda değiştirmeye kalkarsa
+    /// ikincisi DbUpdateConcurrencyException alır ve kimsenin değişikliği sessizce ezilmez.
+    /// </summary>
+    public uint Version { get; private set; }
+
     public static Order Create(Guid customerId, IEnumerable<OrderLineInput> lines)
     {
         var now = DateTimeOffset.UtcNow;
@@ -46,15 +53,25 @@ public class Order
     }
 
     // ---------- Saga durum geçişleri ----------
-    // Her metot geçişin yapılıp yapılmadığını döner. Aynı olay iki kez gelirse ikinci çağrı
-    // false döner ve hiçbir şey değişmez: durum makinesi tüketiciyi doğal olarak idempotent yapıyor.
+    // Her metot geçişin yapılıp yapılmadığını döner. Sırası karışmış ya da geç gelmiş bir olay
+    // (ör. zaman aşımından sonra gelen PaymentCompleted) false döner ve durumu değiştiremez.
 
-    /// <summary>Pending → StockReserved</summary>
+    /// <summary>Pending → StockReserved (sırada ödeme var)</summary>
     public bool MarkStockReserved()
     {
         if (Status != OrderStatus.Pending) return false;
 
         Status = OrderStatus.StockReserved;
+        UpdatedAt = DateTimeOffset.UtcNow; // zaman aşımı sayacı buradan başlar
+        return true;
+    }
+
+    /// <summary>StockReserved → Confirmed</summary>
+    public bool Confirm()
+    {
+        if (Status != OrderStatus.StockReserved) return false;
+
+        Status = OrderStatus.Confirmed;
         UpdatedAt = DateTimeOffset.UtcNow;
         return true;
     }
@@ -62,7 +79,7 @@ public class Order
     /// <summary>Pending / StockReserved → Cancelled</summary>
     public bool Cancel(string reason)
     {
-        if (Status is not (OrderStatus.Pending or OrderStatus.StockReserved or OrderStatus.Cancelling))
+        if (Status is not (OrderStatus.Pending or OrderStatus.StockReserved))
             return false;
 
         Status = OrderStatus.Cancelled;

@@ -10,7 +10,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib.sh
 
-MOUSE="22222222-2222-2222-2222-222222222222"
 EVENT_ID=$(new_uuid)
 ORDER_ID=$(new_uuid)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)

@@ -36,6 +36,40 @@ services:
       timeout: 3s
       retries: 10
 
+  payment-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: payment_user
+      POSTGRES_PASSWORD: payment_pass
+    ports:
+      - "5435:5432"
+    volumes:
+      - ./services/payment-service/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - payment-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payment_user -d payments"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  notification-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: notifications
+      POSTGRES_USER: notification_user
+      POSTGRES_PASSWORD: notification_pass
+    ports:
+      - "5436:5432"
+    volumes:
+      - ./services/notification-service/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - notification-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notification_user -d notifications"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # ---------- Mesajlaşma: Kafka (KRaft modu, Zookeeper yok) ----------
   kafka:
     image: apache/kafka:3.8.0
@@ -75,12 +109,12 @@ services:
     command:
       - |
         set -e
-        for topic in order.events inventory.events; do
+        for topic in order.events inventory.events payment.events; do
           /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 \
             --create --if-not-exists --topic "$$topic" --partitions 3 --replication-factor 1
         done
         # Faz 3: her consumer group'un kendi Dead Letter Queue'su
-        for topic in order-service.dlq inventory-service.dlq; do
+        for topic in order-service.dlq inventory-service.dlq payment-service.dlq notification-service.dlq; do
           /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 \
             --create --if-not-exists --topic "$$topic" --partitions 1 --replication-factor 1
         done
@@ -108,6 +142,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__OrderDb: "Host=order-db;Port=5432;Database=orders;Username=order_user;Password=order_pass"
       Kafka__BootstrapServers: "kafka:19092"
+      Saga__PaymentTimeoutSeconds: "15"   # ödeme 15 sn içinde sonuçlanmazsa sipariş iptal
     depends_on:
       order-db:
         condition: service_healthy
@@ -130,6 +165,43 @@ services:
       kafka-init:
         condition: service_completed_successfully
 
+  payment-service:
+    build:
+      context: .
+      dockerfile: services/payment-service/Dockerfile
+    ports:
+      - "5003:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PaymentDb: "Host=payment-db;Port=5432;Database=payments;Username=payment_user;Password=payment_pass"
+      Kafka__BootstrapServers: "kafka:19092"
+      PaymentProvider__FailureRate: "0.0"     # örn. 0.2 yaparsan ödemelerin %20'si reddedilir
+      PaymentProvider__DelayMs: "300"
+      PaymentProvider__SlowDelayMs: "25000"   # "yavaş" test müşterisi: saga zaman aşımından uzun
+    depends_on:
+      payment-db:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    ports:
+      - "5004:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__NotificationDb: "Host=notification-db;Port=5432;Database=notifications;Username=notification_user;Password=notification_pass"
+      Kafka__BootstrapServers: "kafka:19092"
+    depends_on:
+      notification-db:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
 volumes:
   order-db-data:
   inventory-db-data:
+  payment-db-data:
+  notification-db-data:

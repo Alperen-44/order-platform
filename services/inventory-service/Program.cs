@@ -15,10 +15,10 @@ builder.Services.AddDbContext<InventoryDbContext>(options => options
 
 builder.Services.AddScoped<StockReservationService>();
 
-// Mesajlaşma: OrderCreated'ı dinle, kendi olaylarımızı outbox üzerinden inventory.events'e yayınla.
+// Mesajlaşma: order.events dinle (rezerve et / kesinleştir / geri bırak), sonuçları inventory.events'e yayınla.
 builder.Services.AddKafka(builder.Configuration);
 builder.Services.AddOutboxRelay<InventoryDbContext>(Topics.InventoryEvents);
-builder.Services.AddHostedService<OrderCreatedConsumer>();
+builder.Services.AddHostedService<OrderEventsConsumer>();
 
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));

@@ -21,6 +21,14 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
             e.Property(o => o.Status).HasConversion<string>().HasMaxLength(32);
             e.Property(o => o.TotalAmount).HasPrecision(12, 2);
             e.Property(o => o.CancellationReason).HasMaxLength(500);
+
+            // Optimistic concurrency: PostgreSQL'in her satırda tuttuğu xmin sistem kolonu.
+            // Tabloda ayrıca bir kolon açmaya gerek yok.
+            e.Property(o => o.Version)
+                .HasColumnName("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate()
+                .IsConcurrencyToken();
             e.HasMany(o => o.Items).WithOne().HasForeignKey(i => i.OrderId);
             e.Navigation(o => o.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
         });
