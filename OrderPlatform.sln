@@ -15,6 +15,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PaymentService", "services\
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NotificationService", "services\notification-service\NotificationService.csproj", "{B9299189-75BE-5364-A0D8-845F0E3473FC}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ApiGateway", "services\api-gateway\ApiGateway.csproj", "{6158C97F-5A74-5C94-80FA-DEF22699DA38}"
+EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OrderService.UnitTests", "tests\OrderService.UnitTests\OrderService.UnitTests.csproj", "{CDA40016-5057-5F2C-872D-F5E5BCF7D188}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PaymentService.UnitTests", "tests\PaymentService.UnitTests\PaymentService.UnitTests.csproj", "{C902EF1C-F27B-52E7-A4F7-044EE768725A}"
@@ -53,6 +55,10 @@ Global
 		{B9299189-75BE-5364-A0D8-845F0E3473FC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B9299189-75BE-5364-A0D8-845F0E3473FC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B9299189-75BE-5364-A0D8-845F0E3473FC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6158C97F-5A74-5C94-80FA-DEF22699DA38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6158C97F-5A74-5C94-80FA-DEF22699DA38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6158C97F-5A74-5C94-80FA-DEF22699DA38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6158C97F-5A74-5C94-80FA-DEF22699DA38}.Release|Any CPU.Build.0 = Release|Any CPU
 		{CDA40016-5057-5F2C-872D-F5E5BCF7D188}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{CDA40016-5057-5F2C-872D-F5E5BCF7D188}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CDA40016-5057-5F2C-872D-F5E5BCF7D188}.Release|Any CPU.ActiveCfg = Release|Any CPU

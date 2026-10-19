@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using OrderPlatform.Messaging.Consuming;
 using OrderPlatform.Messaging.Outbox;
 using OrderService.Domain;
+using OrderService.Features.Orders;
 
 namespace OrderService.Persistence;
 
@@ -10,6 +11,7 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -38,6 +40,17 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
             e.ToTable("order_items");
             e.HasKey(i => i.Id);
             e.Property(i => i.UnitPrice).HasPrecision(12, 2);
+        });
+
+        modelBuilder.Entity<IdempotencyRecord>(e =>
+        {
+            e.ToTable("idempotency_keys");
+            e.HasKey(r => new { r.CustomerId, r.Key }); // anahtar müşteri başına benzersiz
+            e.Property(r => r.Key).HasMaxLength(100);
+            e.Property(r => r.RequestHash).HasMaxLength(64);
+
+            // EF'in INSERT sırasını doğru kurması için ilişkiyi bildiriyoruz: önce sipariş, sonra bu kayıt.
+            e.HasOne<Order>().WithMany().HasForeignKey(r => r.OrderId);
         });
 
         modelBuilder.AddOutbox();

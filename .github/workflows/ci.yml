@@ -76,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [order-service, inventory-service, payment-service, notification-service]
+        service: [order-service, inventory-service, payment-service, notification-service, api-gateway]
 
     steps:
       - name: Checkout

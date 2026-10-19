@@ -8,15 +8,19 @@
 Sipariş, stok, ödeme ve bildirim servislerinin Kafka üzerinden mesajlaşarak çalıştığı,
 **hata, tekrar ve yarıda kalma durumlarında tutarlı kalan** bir backend sistemi.
 
-> **Durum:** Faz 4 tamamlandı. Dört servis (Order, Inventory, Payment, Notification) Kafka üzerinden
-> bir saga ile çalışıyor. Ödeme reddedilirse ya da zamanında gelmezse stok geri bırakılıyor,
-> geç alınan ödeme iade ediliyor. Her olay bir kez işleniyor, işlenemeyenler DLQ'ya gidiyor.
+> **Durum:** Faz 7 tamamlandı. Dört servis (Order, Inventory, Payment, Notification) Kafka üzerinden bir saga ile
+> çalışıyor; dış dünya yalnızca API Gateway'i görüyor. Kullanıcılar Keycloak ile giriş yapıyor, kimse başkası
+> adına sipariş veremiyor, çift tıklama çift sipariş oluşturmuyor. Sırada frontend (Faz 8) var.
 
 ## Mimari
 
 ```
-                      POST /orders
-                           │
+            Tarayıcı / istemci ──── token ────► Keycloak (:8081)
+                           │ Authorization: Bearer <JWT>
+                ┌──────────▼──────────┐
+                │  API Gateway (YARP) │  :8000 · JWT doğrulama · X-Customer-Id · rate limit
+                └──────────┬──────────┘
+                           │ /api/orders → order-service
                 ┌──────────▼──────────┐
                 │    Order Service    │  saga orkestratörü (durum makinesi + zaman aşımı)
                 │  Postgres + outbox  │
@@ -74,6 +78,7 @@ docker compose up --build -d      # her şeyi ayağa kaldır
 ./scripts/smoke-test.sh           # saga'nın mutlu yolu + stok yetersizliği
 ./scripts/payment-failure-test.sh # ödeme reddedilince stok geri bırakılıyor mu?
 ./scripts/payment-timeout-test.sh # zaman aşımı + geç alınan ödemenin iadesi
+./scripts/gateway-test.sh         # giriş, sahte kimlik engeli, idempotency, rate limiting
 ./scripts/race-test.sh 100        # "son ürün" eşzamanlılık testi
 ./scripts/kafka-outage-test.sh    # Kafka kapalıyken sipariş kaybolmuyor mu?
 ./scripts/duplicate-event-test.sh # aynı olay 3 kez gelirse bir kez mi işleniyor?
@@ -82,6 +87,8 @@ docker compose up --build -d      # her şeyi ayağa kaldır
 
 | Adres | Ne var |
 |---|---|
+| http://localhost:8000/api/... | **API Gateway** (dış dünyanın gördüğü tek adres) |
+| http://localhost:8081 | Keycloak (admin / admin · kullanıcılar: alice / alice123, bob / bob123) |
 | http://localhost:5001/swagger | Order Service |
 | http://localhost:5002/swagger | Inventory Service |
 | http://localhost:5003/swagger | Payment Service |
@@ -124,13 +131,15 @@ testler bitince container silinir. Veritabanı seviyesindeki garantiler burada k
 ```
 order-platform/
 ├── services/
-│   ├── order-service/         # sipariş, saga orkestrasyonu, zaman aşımı
+│   ├── api-gateway/           # YARP: JWT doğrulama, kimlik aktarımı, rate limiting
+│   ├── order-service/         # sipariş, saga orkestrasyonu, zaman aşımı, Idempotency-Key
 │   ├── inventory-service/     # stok rezervasyonu, kesinleştirme, geri bırakma
 │   ├── payment-service/       # sahte ödeme sağlayıcısı, iade
 │   └── notification-service/  # müşteri bildirimleri
 ├── shared/
 │   ├── OrderPlatform.Contracts/   # olay sözleşmeleri (EventEnvelope, OrderCreated, StockReserved...)
 │   └── OrderPlatform.Messaging/   # Kafka producer, OutboxRelay, idempotent consumer + DLQ
+├── infra/keycloak/            # realm, istemci ve test kullanıcıları
 ├── tests/                     # birim + entegrasyon testleri (xUnit, FluentAssertions, Testcontainers)
 ├── scripts/                   # senaryo testleri (yarış, kesinti, tekrar, bozuk mesaj, ödeme hataları)
 ├── docs/adr/                  # mimari karar kayıtları
@@ -184,7 +193,23 @@ iade ediyor. `PaymentTimeoutWatcher` 15 sn'den uzun ödeme bekleyen siparişleri
 servisi ile consumer'ın aynı siparişi aynı anda değiştirmesine karşı PostgreSQL `xmin` kolonu
 optimistic concurrency token olarak kullanılıyor (bkz. ADR 0005).
 
-### 8. Test edilebilir ödeme sağlayıcısı
+### 8. API Gateway, kimlik ve Idempotency-Key
+Bütün dış istekler YARP tabanlı gateway'den geçiyor. Gateway Keycloak token'ını doğruluyor ve token'daki
+`sub` değerini `X-Customer-Id` başlığıyla servislere iletiyor; istemcinin gönderdiği aynı adlı başlığı
+siliyor. Servisler kayıtları bu kimliğe göre filtreliyor, başkasının kaydı 404 dönüyor.
+`POST /orders` isteğinde `Idempotency-Key` başlığı aynı siparişin iki kez oluşmasını engelliyor:
+aynı anahtar aynı içerikle gelirse ilk sipariş döner, farklı içerikle gelirse 422 (bkz. ADR 0006).
+
+```bash
+TOKEN=$(curl -s -d grant_type=password -d client_id=order-platform-web -d username=alice -d password=alice123 \
+  http://localhost:8081/realms/order-platform/protocol/openid-connect/token | jq -r .access_token)
+
+curl -X POST http://localhost:8000/api/orders -H "Authorization: Bearer $TOKEN" \
+  -H "Idempotency-Key: $(uuidgen)" -H 'Content-Type: application/json' \
+  -d '{"items":[{"productId":"11111111-1111-1111-1111-111111111111","quantity":1,"unitPrice":1500}]}'
+```
+
+### 9. Test edilebilir ödeme sağlayıcısı
 Gerçek sağlayıcıların test kartları gibi, sonucu belli test müşterileri var:
 `00000000-0000-0000-0000-00000000fa11` her zaman reddedilir, `...000000005103` 25 sn bekletir.
 Rastgele hata oranı `PaymentProvider__FailureRate` ile ayarlanabiliyor (ör. `0.2` → %20 red).
@@ -223,13 +248,16 @@ BAŞARILI: 100 istekten yalnızca 1 tanesi ürünü aldı.
   - [x] 5.2 Testcontainers ile PostgreSQL entegrasyon testleri
   - [ ] 5.3 Uçtan uca saga testi (Kafka + 4 PostgreSQL)
 - [x] **Faz 6:** GitHub Actions CI ve build rozeti
-- [ ] **Faz 7:** API Gateway (YARP), Keycloak + JWT, Idempotency-Key, rate limiting
-- [ ] **Faz 8:** OpenTelemetry + Jaeger, Prometheus + Grafana
-- [ ] **Faz 9:** k6 yük testleri
-- [ ] **Faz 10:** Sunum: diyagramlar, demo, blog yazısı
+- [x] **Faz 7:** API Gateway (YARP), Keycloak + JWT, Idempotency-Key, rate limiting
+- [ ] **Faz 8:** Frontend (React + TypeScript): ürünler, sipariş, canlı saga takibi, bildirimler
+- [ ] **Faz 9:** OpenTelemetry + Jaeger, Prometheus + Grafana
+- [ ] **Faz 10:** k6 yük testleri
+- [ ] **Faz 11:** Sunum: diyagramlar, demo, blog yazısı
 
 ## Bilinen sınırlamalar
 - Fiyat istemciden geliyor; gerçek sistemde katalog servisinden alınmalı.
+- Servisler gateway'in eklediği `X-Customer-Id` başlığına güveniyor; bu yüzden servis portları gerçek
+  kurulumda dışarıya kapalı olmalı (burada geliştirme için açık).
 - DLQ'daki mesajları tekrar oynatmak için henüz bir araç yok (elle yapılıyor).
 - `processed_events` tablosu temizlenmiyor; gerçek sistemde eski kayıtlar silinmeli.
 - Ödeme sağlayıcısı consumer içinde senkron çağrılıyor; yavaş bir ödeme aynı partition'daki diğerlerini bekletiyor.

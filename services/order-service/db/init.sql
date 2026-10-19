@@ -44,3 +44,14 @@ CREATE TABLE processed_events (
     processed_at    TIMESTAMPTZ  NOT NULL,
     PRIMARY KEY (consumer_group, event_id)
 );
+
+-- Faz 7: Idempotency-Key. "Sipariş ver" butonuna iki kez basılsa da tek sipariş oluşur.
+-- Sipariş ve bu kayıt aynı transaction'da yazılır.
+CREATE TABLE idempotency_keys (
+    customer_id   UUID         NOT NULL,
+    key           VARCHAR(100) NOT NULL,
+    request_hash  VARCHAR(64)  NOT NULL,   -- aynı anahtar farklı sepetle gelirse 422
+    order_id      UUID         NOT NULL REFERENCES orders (id),
+    created_at    TIMESTAMPTZ  NOT NULL,
+    PRIMARY KEY (customer_id, key)
+);

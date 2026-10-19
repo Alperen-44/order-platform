@@ -5,6 +5,8 @@ ORDER_URL="${ORDER_URL:-http://localhost:5001}"
 INVENTORY_URL="${INVENTORY_URL:-http://localhost:5002}"
 PAYMENT_URL="${PAYMENT_URL:-http://localhost:5003}"
 NOTIFICATION_URL="${NOTIFICATION_URL:-http://localhost:5004}"
+GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
+KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8081}"
 
 KEYBOARD="11111111-1111-1111-1111-111111111111"
 MOUSE="22222222-2222-2222-2222-222222222222"
@@ -124,3 +126,41 @@ db_query() {
 }
 
 new_uuid() { uuidgen | tr '[:upper:]' '[:lower:]'; }
+
+# ---------- Gateway + Keycloak yardımcıları ----------
+
+# get_token <kullanıcı> <şifre> -> access token yazdırır (password grant; yalnızca test için)
+get_token() {
+  curl -fsS -X POST "$KEYCLOAK_URL/realms/order-platform/protocol/openid-connect/token" \
+    -d grant_type=password -d client_id=order-platform-web \
+    -d username="$1" -d password="$2" \
+    | sed -E 's/.*"access_token":"([^"]+)".*/\1/'
+}
+
+# token_sub <token> -> token'daki "sub" (müşteri kimliği)
+token_sub() {
+  local payload
+  payload=$(printf '%s' "$1" | cut -d. -f2 | tr '_-' '/+')
+  # base64 dolgusu (=) eksik olabilir; tamamla
+  while (( ${#payload} % 4 )); do payload="$payload="; done
+  printf '%s' "$payload" | base64 -d 2> /dev/null | sed -E 's/.*"sub":"([^"]+)".*/\1/'
+}
+
+# wait_for_gateway [saniye] -> gateway ve Keycloak hazır olana kadar bekler
+wait_for_gateway() {
+  local deadline=$((SECONDS + ${1:-120}))
+  until curl -fs "$GATEWAY_URL/health" > /dev/null 2>&1 \
+        && curl -fs "$KEYCLOAK_URL/realms/order-platform" > /dev/null 2>&1; do
+    if (( SECONDS >= deadline )); then
+      fail "Gateway ya da Keycloak hazır değil. 'docker compose ps' ve 'docker compose logs api-gateway keycloak' ile kontrol et."
+    fi
+    sleep 3
+  done
+  printf 'Healthy  <- %s (gateway)\nReady    <- %s (keycloak)\n' "$GATEWAY_URL" "$KEYCLOAK_URL"
+}
+
+# http_status <curl argümanları...> -> yalnızca HTTP durum kodunu yazdırır
+http_status() {
+  curl -s -o /dev/null -w '%{http_code}' "$@"
+}
+
