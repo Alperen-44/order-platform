@@ -1,43 +1,65 @@
 # Order Platform: Olay Güdümlü Sipariş ve Stok Sistemi
 
+[![CI](https://github.com/Alperen-44/order-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Alperen-44/order-platform/actions/workflows/ci.yml)
+![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4)
+![Kafka](https://img.shields.io/badge/Apache%20Kafka-3.8-231F20)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1)
+
 Sipariş, stok, ödeme ve bildirim servislerinin Kafka üzerinden mesajlaşarak çalıştığı,
 **hata, tekrar ve yarıda kalma durumlarında tutarlı kalan** bir backend sistemi.
 
-> **Durum:** Faz 3 tamamlandı. Servisler Kafka üzerinden mesajlaşıyor; her olay tam olarak bir kez
-> işleniyor (`processed_events`), işlenemeyen mesajlar Dead Letter Queue'ya gidiyor.
-> Sırada ödeme adımı ve telafi işlemleri (Faz 4) var.
+> **Durum:** Faz 4 tamamlandı. Dört servis (Order, Inventory, Payment, Notification) Kafka üzerinden
+> bir saga ile çalışıyor. Ödeme reddedilirse ya da zamanında gelmezse stok geri bırakılıyor,
+> geç alınan ödeme iade ediliyor. Her olay bir kez işleniyor, işlenemeyenler DLQ'ya gidiyor.
 
-## Mimari (hedef)
-
-```
- İstemci ──► API Gateway ──► Order Service (+ Saga) ──► Postgres (orders + outbox)
-                                    │
-                          ══════════▼═══════ KAFKA ═══════════════
-                              ▲              ▲              ▲
-                     Inventory Service  Payment Service  Notification
-                     (Postgres)         (Postgres)       Service
-```
-
-## Bugünkü akış (Faz 2)
+## Mimari
 
 ```
-POST /orders
-   │
-   ▼
-Order Service ── tek transaction ──► orders + outbox (OrderCreated)
-                                          │  OutboxRelay (500 ms, SKIP LOCKED)
-                                          ▼
-                                   Kafka: order.events  (anahtar = orderId)
-                                          │
-                                          ▼
-Inventory Service ◄── OrderCreatedConsumer
-   │  atomik rezervasyon + outbox (StockReserved | StockReservationFailed) tek transaction
-   ▼  OutboxRelay
-Kafka: inventory.events
-   │
-   ▼
-Order Service ◄── InventoryEventsConsumer
-   Pending → StockReserved   ya da   Pending → Cancelled
+                      POST /orders
+                           │
+                ┌──────────▼──────────┐
+                │    Order Service    │  saga orkestratörü (durum makinesi + zaman aşımı)
+                │  Postgres + outbox  │
+                └──────────┬──────────┘
+                           │ order.events
+   ════════════════════════▼═══════ KAFKA ════════════════════════════════
+        ▲ inventory.events           ▲ payment.events
+        │                            │
+┌───────┴──────────┐      ┌──────────┴───────┐      ┌──────────────────────┐
+│ Inventory Service│      │ Payment Service  │      │ Notification Service │
+│ stok rezervasyonu│      │ sahte sağlayıcı  │      │ (order + payment     │
+│ Postgres+outbox  │      │ Postgres+outbox  │      │  olaylarını dinler)  │
+└──────────────────┘      └──────────────────┘      └──────────────────────┘
+```
+
+Her servisin kendi veritabanı var; servisler birbirinin veritabanına hiç dokunmuyor.
+
+## Saga akışı
+
+**Mutlu yol:**
+```
+OrderCreated ──► Inventory: stok rezerve ──► StockReserved
+            ──► Order: StockReserved, PaymentRequested ──► Payment: ödeme alındı ──► PaymentCompleted
+            ──► Order: Confirmed, OrderConfirmed ──► Inventory: rezervasyon kesinleşti
+                                                 └─► Notification: "Siparişiniz onaylandı"
+```
+
+**Hata yolları ve telafi işlemleri:**
+
+| Ne oldu? | Sipariş | Telafi |
+|---|---|---|
+| Stok yok | `Cancelled` | Gerekmez (hiçbir şey ayrılmadı) |
+| Ödeme reddedildi | `Cancelled` | Inventory stoğu geri bırakır |
+| Ödeme 15 sn'de sonuçlanmadı | `Cancelled` (zaman aşımı) | Inventory stoğu geri bırakır |
+| Ödeme zaman aşımından **sonra** alındı | `Cancelled` kalır | Payment parayı **iade eder** |
+
+Durum makinesi:
+```
+Pending ──StockReserved──► StockReserved ──PaymentCompleted──► Confirmed
+   │                           │
+   │ StockReservationFailed    │ PaymentFailed / zaman aşımı
+   ▼                           ▼
+Cancelled ◄────────────────────┘
 ```
 
 ## Teknolojiler
@@ -49,7 +71,9 @@ Gereksinimler: Docker Desktop, .NET 8 SDK (servisleri Docker dışında çalış
 
 ```bash
 docker compose up --build -d      # her şeyi ayağa kaldır
-./scripts/smoke-test.sh           # uçtan uca olay akışı
+./scripts/smoke-test.sh           # saga'nın mutlu yolu + stok yetersizliği
+./scripts/payment-failure-test.sh # ödeme reddedilince stok geri bırakılıyor mu?
+./scripts/payment-timeout-test.sh # zaman aşımı + geç alınan ödemenin iadesi
 ./scripts/race-test.sh 100        # "son ürün" eşzamanlılık testi
 ./scripts/kafka-outage-test.sh    # Kafka kapalıyken sipariş kaybolmuyor mu?
 ./scripts/duplicate-event-test.sh # aynı olay 3 kez gelirse bir kez mi işleniyor?
@@ -60,19 +84,55 @@ docker compose up --build -d      # her şeyi ayağa kaldır
 |---|---|
 | http://localhost:5001/swagger | Order Service |
 | http://localhost:5002/swagger | Inventory Service |
+| http://localhost:5003/swagger | Payment Service |
+| http://localhost:5004/notifications | Notification Service (gönderilen bildirimler) |
 | http://localhost:8080 | Kafka UI |
+
+## Otomatik testler
+
+```bash
+dotnet test                                        # hepsi (entegrasyon testleri için Docker açık olmalı)
+dotnet test --filter "FullyQualifiedName~UnitTests" # yalnızca birim testleri, Docker gerekmez
+```
+
+### Birim testleri
+Docker gerekmez, birkaç saniyede biter. Test edilen kurallar:
+- **Order durum makinesi:** geçerli geçişler; geçersiz geçişlerin reddedilmesi (iptal edilmiş sipariş
+  sonradan onaylanamaz, onaylanmış sipariş iptal edilemez); aynı geçişin iki kez uygulanamaması.
+- **Sipariş isteği doğrulaması:** boş müşteri, kalemsiz sipariş, geçersiz adet/fiyat, tekrarlanan ürün.
+- **Payment:** yalnızca tamamlanmış ödeme iade edilebilir, iade yalnızca bir kez yapılır.
+- **Sahte ödeme sağlayıcısı:** test müşterileri, hata oranı, iptal sinyali.
+
+### Sürekli entegrasyon (GitHub Actions)
+Her push ve pull request'te [`.github/workflows/ci.yml`](.github/workflows/ci.yml) çalışır:
+derleme → birim testleri → entegrasyon testleri (GitHub'ın sunucusunda gerçek PostgreSQL) →
+dört servisin Docker imajı → `docker-compose.yml` doğrulaması. Test sonuçları her çalışmada
+indirilebilir dosya olarak saklanır.
+
+### Entegrasyon testleri (Testcontainers)
+Her test çalıştırmasında Docker'da geçici bir PostgreSQL açılır, servisin gerçek `init.sql` şeması kurulur,
+testler bitince container silinir. Veritabanı seviyesindeki garantiler burada kanıtlanıyor:
+- **Yarış durumu:** stokta 1 ürün varken 50 eşzamanlı rezervasyondan yalnızca 1'i başarılı olur.
+- **Eşzamanlı tekrar:** aynı sipariş için aynı anda gelen 2 istek stoğu bir kez düşürür (`UNIQUE` + `SAVEPOINT`).
+- **Ya hep ya hiç:** çok kalemli siparişte bir kalem yetersizse hiçbir kalem düşmez.
+- **Telafi ve kesinleştirme:** iki kez release stoğu bir kez geri getirir; kesinleşmiş satış geri alınamaz.
+- **Outbox:** sipariş ile olay birlikte yazılır; olay yazılamazsa sipariş de yazılmaz.
+- **Optimistic concurrency:** aynı siparişi eşzamanlı değiştiren ikinci işlem `DbUpdateConcurrencyException` alır.
 
 ## Proje yapısı
 
 ```
 order-platform/
 ├── services/
-│   ├── order-service/         # sipariş, saga durumları, inventory olaylarını dinler
-│   └── inventory-service/     # stok, rezervasyon, OrderCreated'ı dinler
+│   ├── order-service/         # sipariş, saga orkestrasyonu, zaman aşımı
+│   ├── inventory-service/     # stok rezervasyonu, kesinleştirme, geri bırakma
+│   ├── payment-service/       # sahte ödeme sağlayıcısı, iade
+│   └── notification-service/  # müşteri bildirimleri
 ├── shared/
 │   ├── OrderPlatform.Contracts/   # olay sözleşmeleri (EventEnvelope, OrderCreated, StockReserved...)
 │   └── OrderPlatform.Messaging/   # Kafka producer, OutboxRelay, idempotent consumer + DLQ
-├── scripts/                   # smoke, race ve Kafka kesinti testleri
+├── tests/                     # birim + entegrasyon testleri (xUnit, FluentAssertions, Testcontainers)
+├── scripts/                   # senaryo testleri (yarış, kesinti, tekrar, bozuk mesaj, ödeme hataları)
 ├── docs/adr/                  # mimari karar kayıtları
 └── docker-compose.yml
 ```
@@ -117,6 +177,18 @@ Her tüketici işlediği `eventId` değerlerini, iş mantığının değişikli�
 transaction'ını açmak yerine bu transaction'a katılıyor ve kısmi geri alma için `SAVEPOINT` kullanıyor
 (bkz. ADR 0004).
 
+### 7. Saga: orkestrasyon, telafi, zaman aşımı
+Akışı Order'daki durum makinesi yönetiyor; her geçiş bir sonraki adımı başlatan olayı outbox'a yazıyor.
+`OrderCancelled` olayı telafi işlemlerini tetikliyor: Inventory stoğu bırakıyor, Payment alınmış ödemeyi
+iade ediyor. `PaymentTimeoutWatcher` 15 sn'den uzun ödeme bekleyen siparişleri iptal ediyor. Zaman aşımı
+servisi ile consumer'ın aynı siparişi aynı anda değiştirmesine karşı PostgreSQL `xmin` kolonu
+optimistic concurrency token olarak kullanılıyor (bkz. ADR 0005).
+
+### 8. Test edilebilir ödeme sağlayıcısı
+Gerçek sağlayıcıların test kartları gibi, sonucu belli test müşterileri var:
+`00000000-0000-0000-0000-00000000fa11` her zaman reddedilir, `...000000005103` 25 sn bekletir.
+Rastgele hata oranı `PaymentProvider__FailureRate` ile ayarlanabiliyor (ör. `0.2` → %20 red).
+
 Detaylar: [`docs/adr`](docs/adr)
 
 ## Test sonuçları (Faz 1)
@@ -145,15 +217,21 @@ BAŞARILI: 100 istekten yalnızca 1 tanesi ürünü aldı.
 - [x] **Faz 1:** Order + Inventory servisleri, ayrı DB'ler, outbox tablosu, atomik rezervasyon
 - [x] **Faz 2:** Kafka entegrasyonu, outbox relay, saga'nın ilk adımı (stok rezervasyonu)
 - [x] **Faz 3:** Idempotent consumer, retry ve DLQ
-- [ ] **Faz 4:** Payment servisi, telafi işlemleri, zaman aşımı; Notification servisi
-- [ ] **Faz 5:** API Gateway (YARP), Keycloak, Idempotency-Key başlığı
-- [ ] **Faz 6:** Testcontainers ile entegrasyon testleri, GitHub Actions CI
-- [ ] **Faz 7:** OpenTelemetry + Jaeger, Prometheus + Grafana
-- [ ] **Faz 8:** k6 yük testleri, hata senaryosu demoları
+- [x] **Faz 4:** Payment servisi, telafi işlemleri, zaman aşımı; Notification servisi
+- [ ] **Faz 5:** Otomatik testler
+  - [x] 5.1 Birim testleri (durum makinesi, doğrulama, ödeme kuralları)
+  - [x] 5.2 Testcontainers ile PostgreSQL entegrasyon testleri
+  - [ ] 5.3 Uçtan uca saga testi (Kafka + 4 PostgreSQL)
+- [x] **Faz 6:** GitHub Actions CI ve build rozeti
+- [ ] **Faz 7:** API Gateway (YARP), Keycloak + JWT, Idempotency-Key, rate limiting
+- [ ] **Faz 8:** OpenTelemetry + Jaeger, Prometheus + Grafana
+- [ ] **Faz 9:** k6 yük testleri
+- [ ] **Faz 10:** Sunum: diyagramlar, demo, blog yazısı
 
 ## Bilinen sınırlamalar
 - Fiyat istemciden geliyor; gerçek sistemde katalog servisinden alınmalı.
 - DLQ'daki mesajları tekrar oynatmak için henüz bir araç yok (elle yapılıyor).
 - `processed_events` tablosu temizlenmiyor; gerçek sistemde eski kayıtlar silinmeli.
-- Rezervasyonların süre aşımı (TTL) yok.
+- Ödeme sağlayıcısı consumer içinde senkron çağrılıyor; yavaş bir ödeme aynı partition'daki diğerlerini bekletiyor.
+- Bildirimler simüle ediliyor (log + veritabanı); gerçek e-posta gönderilmiyor.
 - Şema SQL init script'iyle oluşturuluyor (bkz. ADR 0002).

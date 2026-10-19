@@ -1,0 +1,98 @@
+# Her push ve pull request'te çalışır:
+#   1) Bütün projeleri derler
+#   2) Birim testlerini çalıştırır (hızlı, Docker gerekmez)
+#   3) Entegrasyon testlerini çalıştırır (Testcontainers → GitHub'ın sunucusundaki Docker'da gerçek PostgreSQL)
+#   4) Dört servisin Docker imajının build edilebildiğini kontrol eder
+#   5) docker-compose.yml dosyasının geçerli olduğunu kontrol eder
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # GitHub arayüzünden elle de çalıştırılabilsin
+
+# Aynı dala art arda push yapılırsa eski çalışmayı iptal et
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-and-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore OrderPlatform.sln
+
+      - name: Build
+        run: dotnet build OrderPlatform.sln --configuration Release --no-restore
+
+      - name: Unit tests
+        run: >
+          dotnet test OrderPlatform.sln --configuration Release --no-build
+          --filter "FullyQualifiedName~UnitTests"
+          --logger "trx;LogFilePrefix=unit" --results-directory TestResults
+
+      - name: Integration tests (Testcontainers + PostgreSQL)
+        run: >
+          dotnet test OrderPlatform.sln --configuration Release --no-build
+          --filter "FullyQualifiedName~IntegrationTests"
+          --logger "trx;LogFilePrefix=integration" --results-directory TestResults
+
+      - name: Upload test results
+        if: always() # testler başarısız olsa da sonuçları indirilebilir olsun
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/*.trx
+
+  docker:
+    name: Docker image (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [order-service, inventory-service, payment-service, notification-service]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build --file services/${{ matrix.service }}/Dockerfile --tag order-platform/${{ matrix.service }}:ci .
+
+  compose:
+    name: Validate docker-compose.yml
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: docker compose config
+        run: docker compose config --quiet
