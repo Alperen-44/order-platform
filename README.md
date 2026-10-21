@@ -88,8 +88,9 @@ docker compose up --build -d      # her şeyi ayağa kaldır
 
 | Adres | Ne var |
 |---|---|
+| http://localhost:3000 | **Web arayüzü** (React + nginx). Geliştirirken `cd frontend && npm run dev` → :5173 |
 | http://localhost:8000/api/... | **API Gateway** (dış dünyanın gördüğü tek adres) |
-| http://localhost:8081 | Keycloak (admin / admin · kullanıcılar: alice / alice123, bob / bob123) |
+| http://localhost:8081 | Keycloak (admin / admin). Deneme hesapları: alice, bob, declined, slowpay (şifre: ad + 123) |
 | http://localhost:5001/swagger | Order Service |
 | http://localhost:5002/swagger | Inventory Service |
 | http://localhost:5003/swagger | Payment Service |
@@ -215,6 +216,10 @@ Gerçek sağlayıcıların test kartları gibi, sonucu belli test müşterileri 
 `00000000-0000-0000-0000-00000000fa11` her zaman reddedilir, `...000000005103` 25 sn bekletir.
 Rastgele hata oranı `PaymentProvider__FailureRate` ile ayarlanabiliyor (ör. `0.2` → %20 red).
 
+Keycloak'taki `declined` / `declined123` ve `slowpay` / `slowpay123` kullanıcılarının kimlikleri bu test
+müşterileriyle aynı. Sitede bu hesaplarla sipariş verince ödeme reddi ve zaman aşımı + geç ödemenin iadesi
+zaman çizelgesinde adım adım görülüyor. Hesap listesi sitenin altındaki "Deneme hesapları" bölümünde.
+
 ### 10. Fiyatı sunucu belirler
 İstemci yalnızca ürün ve adet gönderiyor; `unitPrice` gönderse bile yok sayılıyor. Inventory stoğu ayırırken
 `StockReserved` olayına ürünlerin güncel fiyatlarını ekliyor, Order Service tutarı bu fiyatlarla hesaplayıp
@@ -261,8 +266,8 @@ BAŞARILI: 100 istekten yalnızca 1 tanesi ürünü aldı.
   - [x] 8.2 Keycloak ile giriş (Authorization Code + PKCE)
   - [x] 8.3-8.4 Sepet, Idempotency-Key ile sipariş, canlı saga zaman çizelgesi
   - [x] 8.5 Fiyatı Inventory belirler (istemci fiyatına güvenilmez)
-  - [ ] 8.6 Hata senaryolarını arayüzde gösterme
-  - [ ] 8.7 Docker (nginx) ve tek komutla çalıştırma
+  - [x] 8.6 Hata senaryolarını arayüzde gösterme (ret, zaman aşımı, geç ödemenin iadesi)
+  - [x] 8.7 Docker (nginx) ve tek komutla çalıştırma (`docker compose up` → :3000)
   - [ ] 8.8 Vitest + Playwright testleri, CI
 - [ ] **Faz 9:** OpenTelemetry + Jaeger, Prometheus + Grafana
 - [ ] **Faz 10:** k6 yük testleri

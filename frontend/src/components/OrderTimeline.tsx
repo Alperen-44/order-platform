@@ -1,5 +1,5 @@
 import { cancellation, formatTime } from "../lib/format";
-import type { Order } from "../lib/types";
+import type { Order, Payment } from "../lib/types";
 
 type StepState = "done" | "active" | "failed" | "skipped" | "waiting";
 
@@ -19,7 +19,7 @@ interface Step {
  *
  * Bu fonksiyon saf (yan etkisiz) olduğu için birim testi kolay: 8.7'de test edeceğiz.
  */
-export function timelineSteps(order: Order): Step[] {
+export function timelineSteps(order: Order, payment?: Payment | null): Step[] {
   const received: Step = { title: "Sipariş alındı", state: "done", note: formatTime(order.createdAt) };
 
   switch (order.status) {
@@ -54,12 +54,22 @@ export function timelineSteps(order: Order): Step[] {
           { title: "Sipariş iptal edildi", state: "failed", note: formatTime(order.updatedAt) },
         ];
       }
-      return [
+      const steps: Step[] = [
         received,
         { title: "Stok ayrıldı", state: "done", note: "Ödeme alınamayınca ayrılan stok depoya geri bırakıldı" },
         { title: "Ödeme alınamadı", state: "failed", note: text },
         { title: "Sipariş iptal edildi", state: "failed", note: formatTime(order.updatedAt) },
       ];
+      // Zaman aşımından SONRA ödeme yine de tamamlanabilir (sağlayıcı geç cevap verdi).
+      // Payment Service OrderCancelled olayını görünce parayı otomatik iade eder: saga'nın telafi adımı.
+      if (payment?.status === "Refunded") {
+        steps.push({
+          title: "Geç gelen ödeme iade edildi",
+          state: "done",
+          note: `${formatTime(payment.updatedAt)}, sipariş iptal olduğu için Payment Service parayı geri verdi`,
+        });
+      }
+      return steps;
     }
   }
 }
@@ -80,8 +90,8 @@ const symbol: Record<StepState, string> = {
   waiting: "",
 };
 
-export function OrderTimeline({ order }: { order: Order }) {
-  const steps = timelineSteps(order);
+export function OrderTimeline({ order, payment }: { order: Order; payment?: Payment | null }) {
+  const steps = timelineSteps(order, payment);
 
   return (
     <ol className="relative" aria-label="Sipariş adımları">

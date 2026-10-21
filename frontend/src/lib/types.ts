@@ -44,3 +44,17 @@ export interface Notification {
   message: string;
   createdAt: string;
 }
+
+/** payment-service → Payment */
+export type PaymentStatus = "Completed" | "Failed" | "Refunded";
+
+export interface Payment {
+  id: string;
+  orderId: string;
+  amount: number;
+  status: PaymentStatus;
+  providerReference: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

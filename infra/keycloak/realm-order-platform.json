@@ -10,16 +10,22 @@
     {
       "clientId": "order-platform-web",
       "name": "Order Platform Web",
-      "description": "Frontend (Authorization Code + PKCE) ve test scriptleri (password grant) için public istemci",
+      "description": "Frontend (Authorization Code + PKCE; geliştirme :5173, Docker :3000) ve test scriptleri (password grant) için public istemci",
       "enabled": true,
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
-      "redirectUris": ["http://localhost:5173/*"],
-      "webOrigins": ["http://localhost:5173"],
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://localhost:3000"
+      ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:5173/*"
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:3000/*"
       },
       "protocolMappers": [
         {
@@ -44,7 +50,13 @@
       "emailVerified": true,
       "firstName": "Alice",
       "lastName": "Test",
-      "credentials": [{ "type": "password", "value": "alice123", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice123",
+          "temporary": false
+        }
+      ]
     },
     {
       "username": "bob",
@@ -53,7 +65,45 @@
       "emailVerified": true,
       "firstName": "Bob",
       "lastName": "Test",
-      "credentials": [{ "type": "password", "value": "bob123", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000fa11",
+      "username": "declined",
+      "enabled": true,
+      "email": "declined@example.com",
+      "emailVerified": true,
+      "firstName": "Reddedilen",
+      "lastName": "Kart",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "declined123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000005103",
+      "username": "slowpay",
+      "enabled": true,
+      "email": "slowpay@example.com",
+      "emailVerified": true,
+      "firstName": "Yavaş",
+      "lastName": "Ödeme",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "slowpay123",
+          "temporary": false
+        }
+      ]
     }
   ]
 }

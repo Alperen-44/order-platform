@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useCart } from "../cart/CartProvider";
+import { DemoAccounts } from "./DemoAccounts";
 
 const navItems = [
   { to: "/", label: "Ürünler", end: true },
@@ -88,6 +89,10 @@ export function Layout() {
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
         <Outlet />
       </main>
+
+      <footer className="mx-auto max-w-5xl px-4 pb-12 sm:px-6">
+        <DemoAccounts />
+      </footer>
     </div>
   );
 }
