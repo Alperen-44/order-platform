@@ -247,6 +247,17 @@ services:
       kafka-init:
         condition: service_completed_successfully
 
+  # Müşteri arayüzü (React). Build edilmiş statik dosyaları nginx sunar.
+  # Geliştirirken "npm run dev" (:5173) daha pratik: kaydedince sayfa anında yenilenir.
+  web:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      api-gateway:
+        condition: service_started
+
 volumes:
   order-db-data:
   inventory-db-data:

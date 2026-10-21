@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -10,5 +10,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+  },
+  // Vitest (birim testleri) aynı ayarları kullanır. Yalnızca src altındaki *.test.ts(x) dosyaları:
+  // e2e/ klasöründeki Playwright testleri ayrı çalışır (npm run test:e2e).
+  test: {
+    include: ["src/**/*.test.{ts,tsx}"],
+    environment: "node",
   },
 });

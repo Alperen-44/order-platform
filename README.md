@@ -10,8 +10,18 @@ Sipariş, stok, ödeme ve bildirim servislerinin Kafka üzerinden mesajlaşarak 
 
 > **Durum:** Faz 7 tamamlandı. Dört servis (Order, Inventory, Payment, Notification) Kafka üzerinden bir saga ile
 > çalışıyor; dış dünya yalnızca API Gateway'i görüyor. Kullanıcılar Keycloak ile giriş yapıyor, kimse başkası
-> adına sipariş veremiyor, çift tıklama çift sipariş oluşturmuyor. Faz 8 sürüyor: React arayüzünde giriş,
-> sepet, sipariş ve canlı saga takibi çalışıyor; sipariş tutarını artık istemci değil Inventory belirliyor.
+> adına sipariş veremiyor, çift tıklama çift sipariş oluşturmuyor. Faz 8 tamamlandı: React arayüzünde giriş,
+> sepet, sipariş ve canlı saga takibi var; her push'ta bütün sistem CI'da uçtan uca test ediliyor.
+
+## Ekran görüntüleri
+
+| Ürünler (stok canlı güncellenir) | Onaylanan sipariş |
+|---|---|
+| ![Ürünler](docs/images/products.png) | ![Onaylanan sipariş](docs/images/order-confirmed.png) |
+| **Reddedilen ödeme: stok geri bırakılır** | **Zaman aşımı: geç gelen ödeme iade edilir** |
+| ![Reddedilen ödeme](docs/images/order-declined.png) | ![Zaman aşımı ve iade](docs/images/order-timeout-refund.png) |
+
+Görüntüler Playwright ile üretiliyor: `cd frontend && npm run screenshots`.
 
 ## Mimari
 
@@ -112,11 +122,22 @@ Docker gerekmez, birkaç saniyede biter. Test edilen kurallar:
 - **Payment:** yalnızca tamamlanmış ödeme iade edilebilir, iade yalnızca bir kez yapılır.
 - **Sahte ödeme sağlayıcısı:** test müşterileri, hata oranı, iptal sinyali.
 
+### Frontend testleri
+```bash
+cd frontend
+npm test            # Vitest: saga zaman çizelgesinin her sonucu (onay, stok yok, ret, zaman aşımı + iade)
+npm run test:e2e    # Playwright: gerçek sisteme karşı tarayıcı testleri (önce docker compose up -d)
+```
+Playwright testleri Keycloak'tan giriş yapıp sipariş veriyor: `alice` ile onay, `declined` ile ret ve
+stok iadesi, `bob`'un `alice`'in siparişini görememesi.
+
 ### Sürekli entegrasyon (GitHub Actions)
 Her push ve pull request'te [`.github/workflows/ci.yml`](.github/workflows/ci.yml) çalışır:
-derleme → birim testleri → entegrasyon testleri (GitHub'ın sunucusunda gerçek PostgreSQL) →
-dört servisin Docker imajı → `docker-compose.yml` doğrulaması. Test sonuçları her çalışmada
-indirilebilir dosya olarak saklanır.
+1. Derleme, birim testleri, entegrasyon testleri (GitHub'ın sunucusunda gerçek PostgreSQL)
+2. Beş servisin Docker imajı ve `docker-compose.yml` doğrulaması
+3. Frontend: tip kontrolü, build, Vitest
+4. **Uçtan uca:** bütün sistem `docker compose` ile ayağa kalkar; `smoke-test.sh`, `gateway-test.sh`
+   ve Playwright testleri gerçek Kafka, PostgreSQL ve Keycloak üzerinde çalışır.
 
 ### Entegrasyon testleri (Testcontainers)
 Her test çalıştırmasında Docker'da geçici bir PostgreSQL açılır, servisin gerçek `init.sql` şeması kurulur,
@@ -261,14 +282,14 @@ BAŞARILI: 100 istekten yalnızca 1 tanesi ürünü aldı.
   - [ ] 5.3 Uçtan uca saga testi (Kafka + 4 PostgreSQL)
 - [x] **Faz 6:** GitHub Actions CI ve build rozeti
 - [x] **Faz 7:** API Gateway (YARP), Keycloak + JWT, Idempotency-Key, rate limiting
-- [ ] **Faz 8:** Frontend (React + TypeScript)
+- [x] **Faz 8:** Frontend (React + TypeScript)
   - [x] 8.1 Vite + React + Tailwind iskeleti, gateway'den ürün listesi
   - [x] 8.2 Keycloak ile giriş (Authorization Code + PKCE)
   - [x] 8.3-8.4 Sepet, Idempotency-Key ile sipariş, canlı saga zaman çizelgesi
   - [x] 8.5 Fiyatı Inventory belirler (istemci fiyatına güvenilmez)
   - [x] 8.6 Hata senaryolarını arayüzde gösterme (ret, zaman aşımı, geç ödemenin iadesi)
   - [x] 8.7 Docker (nginx) ve tek komutla çalıştırma (`docker compose up` → :3000)
-  - [ ] 8.8 Vitest + Playwright testleri, CI
+  - [x] 8.8 Vitest + Playwright testleri, uçtan uca CI, ekran görüntüleri
 - [ ] **Faz 9:** OpenTelemetry + Jaeger, Prometheus + Grafana
 - [ ] **Faz 10:** k6 yük testleri
 - [ ] **Faz 11:** Sunum: diyagramlar, demo, blog yazısı
