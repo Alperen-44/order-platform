@@ -1,0 +1,10 @@
+<!doctype html>
+<html>
+  <body>
+    <!-- keycloak-js bu sayfayı görünmez bir iframe'de açar: kullanıcı Keycloak'ta zaten giriş yapmışsa
+         sayfa yenilendiğinde tekrar şifre sormadan oturumu geri yükler. -->
+    <script>
+      parent.postMessage(location.href, location.origin);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+/* Tasarım değişkenleri. Tailwind v4 bunlardan sınıf üretir: bg-canvas, text-ink, font-display ... */
+@theme {
+  --color-canvas: #eef2f5;
+  --color-surface: #ffffff;
+  --color-ink: #17324d;
+  --color-muted: #5a6b7b;
+  --color-line: #d5dde4;
+  --color-tag: #f2b33d;
+  --color-ok: #1e7f5a;
+  --color-warn: #a86400;
+  --color-bad: #b8402f;
+
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
