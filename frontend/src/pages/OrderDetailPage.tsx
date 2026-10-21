@@ -11,6 +11,9 @@ import { OrderTimeline } from "../components/OrderTimeline";
 
 const isFinal = (order?: Order) => order?.status === "Confirmed" || order?.status === "Cancelled";
 
+/** Pending'de fiyat henüz yok; iptal edilen siparişte de stok ayrılamadıysa fiyat hiç belirlenmedi. */
+const isPriced = (order: Order) => order.status !== "Pending" && order.totalAmount > 0;
+
 export function OrderDetailPage() {
   const { user } = useAuth();
   if (!user) {
@@ -79,14 +82,21 @@ function OrderDetail() {
                 <span>
                   {item.quantity} × {productName(item.productId)}
                 </span>
-                <span className="tabular-nums">{formatMoney(item.unitPrice * item.quantity)}</span>
+                <span className="tabular-nums">
+                  {isPriced(data) ? formatMoney(item.unitPrice * item.quantity) : "—"}
+                </span>
               </li>
             ))}
           </ul>
           <div className="mt-4 flex items-baseline justify-between border-t border-line pt-4">
             <span className="text-muted">Toplam</span>
-            <span className="font-display text-2xl font-bold tabular-nums">{formatMoney(data.totalAmount)}</span>
+            <span className="font-display text-2xl font-bold tabular-nums">
+              {isPriced(data) ? formatMoney(data.totalAmount) : "—"}
+            </span>
           </div>
+          {data.status === "Pending" && (
+            <p className="mt-2 text-sm text-muted">Tutar, stok ayrılınca güncel fiyatlarla hesaplanacak.</p>
+          )}
         </aside>
       </div>
     </>

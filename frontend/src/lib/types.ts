@@ -19,6 +19,7 @@ export type OrderStatus = "Pending" | "StockReserved" | "Confirmed" | "Cancelled
 export interface OrderItem {
   productId: string;
   quantity: number;
+  /** Stok ayrılana kadar 0: fiyatı Inventory belirler. */
   unitPrice: number;
 }
 

@@ -14,7 +14,7 @@ namespace OrderService.Messaging;
 /// Saga'nın orkestratörü. Inventory ve Payment'tan gelen sonuçlara göre siparişi bir sonraki
 /// adıma taşır ve sıradaki adımı başlatan olayı outbox'a yazar:
 ///
-///   StockReserved          → StockReserved durumu  + PaymentRequested
+///   StockReserved          → StockReserved durumu  + PaymentRequested  (tutar Inventory fiyatlarıyla)
 ///   StockReservationFailed → Cancelled             + OrderCancelled
 ///   PaymentCompleted       → Confirmed             + OrderConfirmed
 ///   PaymentFailed          → Cancelled             + OrderCancelled  (telafi: stok geri bırakılır)
@@ -40,8 +40,9 @@ public sealed class SagaEventsConsumer(
             case EventTypes.StockReserved:
             {
                 var e = message.Deserialize<StockReserved>().Payload;
+                var unitPrices = e.Items.ToDictionary(i => i.ProductId, i => i.UnitPrice);
                 return ApplyAsync(db, e.OrderId, message,
-                    order => order.MarkStockReserved(), OrderOutboxEvents.PaymentRequested, ct);
+                    order => order.MarkStockReserved(unitPrices), OrderOutboxEvents.PaymentRequested, ct);
             }
             case EventTypes.StockReservationFailed:
             {

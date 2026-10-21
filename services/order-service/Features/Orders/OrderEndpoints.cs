@@ -63,7 +63,7 @@ public static class OrderEndpoints
 
         var order = Order.Create(
             request.CustomerId,
-            request.Items!.Select(i => new OrderLineInput(i.ProductId, i.Quantity, i.UnitPrice)));
+            request.Items!.Select(i => new OrderLineInput(i.ProductId, i.Quantity)));
 
         // KRİTİK NOKTA: Sipariş, olay ve idempotency kaydı tek bir SaveChanges ile, yani TEK transaction
         // içinde yazılır. Ya hepsi kalıcı olur ya hiçbiri.

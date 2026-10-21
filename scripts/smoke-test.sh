@@ -25,6 +25,9 @@ fi
 
 step "5) Her servisin kendi tarafındaki sonuç"
 echo "Ödeme      : $(payment_status "$ORDER_ID")"
+TOTAL=$(order_total "$ORDER_ID")
+echo "Tutar      : $TOTAL TL (fiyatı istemci değil Inventory belirledi)"
+[[ "${TOTAL%%.*}" == "1500" ]] || fail "Tutar $TOTAL (beklenen: Mekanik Klavye'nin fiyatı 1500)"
 sleep 2 # rezervasyonun kesinleşmesi ve bildirim, OrderConfirmed olayından sonra gelir
 curl -fsS "$INVENTORY_URL/reservations/$ORDER_ID" | sed 's/^/Rezervasyon: /'; echo
 AFTER=$(available_stock "$KEYBOARD")

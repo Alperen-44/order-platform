@@ -39,13 +39,18 @@ wait_for_services() {
 create_order() {
   local json customer="${3:-$CUSTOMER}"
   json=$(curl -fsS -X POST "$ORDER_URL/orders" -H 'Content-Type: application/json' \
-    -d "{\"customerId\":\"$customer\",\"items\":[{\"productId\":\"$1\",\"quantity\":$2,\"unitPrice\":1500}]}")
+    -d "{\"customerId\":\"$customer\",\"items\":[{\"productId\":\"$1\",\"quantity\":$2}]}")
   echo "$json" | sed -E 's/.*"id":"([^"]+)".*/\1/'
 }
 
 # order_status <orderId>
 order_status() {
   curl -fsS "$ORDER_URL/orders/$1" | sed -E 's/.*"status":"([^"]+)".*/\1/'
+}
+
+# order_total <orderId> -> sipariş tutarı (stok ayrılana kadar 0)
+order_total() {
+  curl -fsS "$ORDER_URL/orders/$1" | sed -E 's/.*"totalAmount":([0-9.]+).*/\1/'
 }
 
 # cancellation_reason <orderId>

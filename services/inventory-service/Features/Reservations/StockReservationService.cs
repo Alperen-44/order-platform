@@ -104,11 +104,20 @@ public sealed class StockReservationService(InventoryDbContext db)
         }
 
         // 4) Rezervasyon kayıtları ile StockReserved olayı AYNI transaction'da yazılır (outbox pattern).
+        //    Olay, ayrılan ürünlerin GÜNCEL fiyatlarını da taşır: sipariş tutarını Order servisi bu
+        //    fiyatlarla hesaplar. Böylece istemci fiyatı değiştirerek ucuza sipariş veremez.
         if (publishEvents)
         {
+            var productIds = lines.Select(l => l.ProductId).ToList();
+            var prices = await db.Stock.AsNoTracking()
+                .Where(s => productIds.Contains(s.ProductId))
+                .ToDictionaryAsync(s => s.ProductId, s => s.Price, ct);
+
             db.OutboxMessages.Add(OutboxMessage.From(orderId, EventEnvelope.Create(
                 EventTypes.StockReserved, correlationId,
-                new StockReserved(orderId, lines.Select(l => new ReservedLine(l.ProductId, l.Quantity)).ToList()))));
+                new StockReserved(orderId, lines
+                    .Select(l => new ReservedLine(l.ProductId, l.Quantity, prices[l.ProductId]))
+                    .ToList()))));
         }
 
         try

@@ -41,8 +41,9 @@ export function CartPage() {
       apiPost<Order>(
         "/api/orders",
         {
-          // customerId gönderilmiyor: gateway onu token'dan kendisi ekler.
-          items: rows.map((r) => ({ productId: r.productId, quantity: r.quantity, unitPrice: r.product.price })),
+          // Yalnızca ürün ve adet gidiyor. customerId'yi gateway token'dan ekler,
+          // fiyatı Inventory stok ayırırken belirler (ADR 0007).
+          items: rows.map((r) => ({ productId: r.productId, quantity: r.quantity })),
         },
         { idempotencyKey: idempotency.current.key },
       ),
@@ -101,6 +102,7 @@ export function CartPage() {
             <span className="text-muted">Toplam</span>
             <span className="font-display text-3xl font-bold tabular-nums">{formatMoney(total)}</span>
           </div>
+          <p className="mt-2 text-sm text-muted">Kesin tutar, stok ayrılırken güncel fiyatlarla hesaplanır.</p>
 
           {user ? (
             <button

@@ -32,6 +32,7 @@ public static class EventTypes
 
 // ---------- Order olayları ----------
 
+/// <summary>OrderCreated'da UnitPrice henüz 0'dır; fiyat stok ayrılınca (StockReserved) belirlenir.</summary>
 public sealed record OrderLine(Guid ProductId, int Quantity, decimal UnitPrice);
 
 public sealed record OrderCreated(
@@ -58,7 +59,11 @@ public sealed record OrderCancelled(Guid OrderId, Guid CustomerId, string Reason
 
 // ---------- Inventory olayları ----------
 
-public sealed record ReservedLine(Guid ProductId, int Quantity);
+/// <summary>
+/// Ayrılan kalem ve o anki birim fiyat. Fiyatın tek doğru kaynağı Inventory: sipariş tutarı
+/// istemcinin gönderdiği fiyattan değil, buradaki fiyattan hesaplanır (ADR 0007).
+/// </summary>
+public sealed record ReservedLine(Guid ProductId, int Quantity, decimal UnitPrice);
 
 public sealed record StockReserved(Guid OrderId, IReadOnlyList<ReservedLine> Items);
 

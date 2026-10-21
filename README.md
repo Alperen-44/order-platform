@@ -10,7 +10,8 @@ Sipariş, stok, ödeme ve bildirim servislerinin Kafka üzerinden mesajlaşarak 
 
 > **Durum:** Faz 7 tamamlandı. Dört servis (Order, Inventory, Payment, Notification) Kafka üzerinden bir saga ile
 > çalışıyor; dış dünya yalnızca API Gateway'i görüyor. Kullanıcılar Keycloak ile giriş yapıyor, kimse başkası
-> adına sipariş veremiyor, çift tıklama çift sipariş oluşturmuyor. Sırada frontend (Faz 8) var.
+> adına sipariş veremiyor, çift tıklama çift sipariş oluşturmuyor. Faz 8 sürüyor: React arayüzünde giriş,
+> sepet, sipariş ve canlı saga takibi çalışıyor; sipariş tutarını artık istemci değil Inventory belirliyor.
 
 ## Mimari
 
@@ -106,7 +107,7 @@ dotnet test --filter "FullyQualifiedName~UnitTests" # yalnızca birim testleri, 
 Docker gerekmez, birkaç saniyede biter. Test edilen kurallar:
 - **Order durum makinesi:** geçerli geçişler; geçersiz geçişlerin reddedilmesi (iptal edilmiş sipariş
   sonradan onaylanamaz, onaylanmış sipariş iptal edilemez); aynı geçişin iki kez uygulanamaması.
-- **Sipariş isteği doğrulaması:** boş müşteri, kalemsiz sipariş, geçersiz adet/fiyat, tekrarlanan ürün.
+- **Sipariş isteği doğrulaması:** boş müşteri, kalemsiz sipariş, geçersiz adet, tekrarlanan ürün.
 - **Payment:** yalnızca tamamlanmış ödeme iade edilebilir, iade yalnızca bir kez yapılır.
 - **Sahte ödeme sağlayıcısı:** test müşterileri, hata oranı, iptal sinyali.
 
@@ -206,13 +207,19 @@ TOKEN=$(curl -s -d grant_type=password -d client_id=order-platform-web -d userna
 
 curl -X POST http://localhost:8000/api/orders -H "Authorization: Bearer $TOKEN" \
   -H "Idempotency-Key: $(uuidgen)" -H 'Content-Type: application/json' \
-  -d '{"items":[{"productId":"11111111-1111-1111-1111-111111111111","quantity":1,"unitPrice":1500}]}'
+  -d '{"items":[{"productId":"11111111-1111-1111-1111-111111111111","quantity":1}]}'
 ```
 
 ### 9. Test edilebilir ödeme sağlayıcısı
 Gerçek sağlayıcıların test kartları gibi, sonucu belli test müşterileri var:
 `00000000-0000-0000-0000-00000000fa11` her zaman reddedilir, `...000000005103` 25 sn bekletir.
 Rastgele hata oranı `PaymentProvider__FailureRate` ile ayarlanabiliyor (ör. `0.2` → %20 red).
+
+### 10. Fiyatı sunucu belirler
+İstemci yalnızca ürün ve adet gönderiyor; `unitPrice` gönderse bile yok sayılıyor. Inventory stoğu ayırırken
+`StockReserved` olayına ürünlerin güncel fiyatlarını ekliyor, Order Service tutarı bu fiyatlarla hesaplayıp
+ödemeyi bu tutarla istiyor. Order, Inventory'yi senkron çağırmadığı için Inventory kapalıyken de sipariş
+alınabiliyor (bkz. ADR 0007). `gateway-test.sh` 11. adım klavyeyi 1 TL'ye almaya çalışıp 1500 TL ödendiğini doğruluyor.
 
 Detaylar: [`docs/adr`](docs/adr)
 
@@ -249,13 +256,20 @@ BAŞARILI: 100 istekten yalnızca 1 tanesi ürünü aldı.
   - [ ] 5.3 Uçtan uca saga testi (Kafka + 4 PostgreSQL)
 - [x] **Faz 6:** GitHub Actions CI ve build rozeti
 - [x] **Faz 7:** API Gateway (YARP), Keycloak + JWT, Idempotency-Key, rate limiting
-- [ ] **Faz 8:** Frontend (React + TypeScript): ürünler, sipariş, canlı saga takibi, bildirimler
+- [ ] **Faz 8:** Frontend (React + TypeScript)
+  - [x] 8.1 Vite + React + Tailwind iskeleti, gateway'den ürün listesi
+  - [x] 8.2 Keycloak ile giriş (Authorization Code + PKCE)
+  - [x] 8.3-8.4 Sepet, Idempotency-Key ile sipariş, canlı saga zaman çizelgesi
+  - [x] 8.5 Fiyatı Inventory belirler (istemci fiyatına güvenilmez)
+  - [ ] 8.6 Hata senaryolarını arayüzde gösterme
+  - [ ] 8.7 Docker (nginx) ve tek komutla çalıştırma
+  - [ ] 8.8 Vitest + Playwright testleri, CI
 - [ ] **Faz 9:** OpenTelemetry + Jaeger, Prometheus + Grafana
 - [ ] **Faz 10:** k6 yük testleri
 - [ ] **Faz 11:** Sunum: diyagramlar, demo, blog yazısı
 
 ## Bilinen sınırlamalar
-- Fiyat istemciden geliyor; gerçek sistemde katalog servisinden alınmalı.
+- Fiyat Inventory'de tutuluyor; gerçek sistemde ayrı bir katalog/fiyat servisi olur.
 - Servisler gateway'in eklediği `X-Customer-Id` başlığına güveniyor; bu yüzden servis portları gerçek
   kurulumda dışarıya kapalı olmalı (burada geliştirme için açık).
 - DLQ'daki mesajları tekrar oynatmak için henüz bir araç yok (elle yapılıyor).

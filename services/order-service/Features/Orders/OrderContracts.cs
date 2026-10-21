@@ -2,7 +2,11 @@ using OrderService.Domain;
 
 namespace OrderService.Features.Orders;
 
-public sealed record CreateOrderItemRequest(Guid ProductId, int Quantity, decimal UnitPrice);
+/// <summary>
+/// Sipariş kalemi: ürün ve adet. Fiyat alanı yok; istemci "unitPrice" gönderse bile yok sayılır.
+/// Fiyatı Inventory belirler (ADR 0007).
+/// </summary>
+public sealed record CreateOrderItemRequest(Guid ProductId, int Quantity);
 
 public sealed record CreateOrderRequest(Guid CustomerId, List<CreateOrderItemRequest>? Items)
 {
@@ -23,8 +27,6 @@ public sealed record CreateOrderRequest(Guid CustomerId, List<CreateOrderItemReq
             errors["items.productId"] = ["productId boş olamaz."];
         if (Items.Any(i => i.Quantity <= 0))
             errors["items.quantity"] = ["quantity 0'dan büyük olmalıdır."];
-        if (Items.Any(i => i.UnitPrice < 0))
-            errors["items.unitPrice"] = ["unitPrice negatif olamaz."];
         if (Items.Select(i => i.ProductId).Distinct().Count() != Items.Count)
             errors["items"] = ["Aynı ürün birden fazla satırda olamaz; adedi artırın."];
 

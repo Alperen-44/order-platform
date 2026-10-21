@@ -18,12 +18,12 @@ public class OrderPersistenceTests(PostgresFixture db)
     [Fact]
     public async Task Siparis_ve_OrderCreated_olayi_birlikte_kaydedilir()
     {
-        var order = await db.CreateOrderAsync(unitPrice: 150m, quantity: 2);
+        var order = await db.CreateOrderAsync(quantity: 2);
 
         await using var context = db.CreateDbContext();
         var saved = await context.Orders.Include(o => o.Items).SingleAsync(o => o.Id == order.Id);
         saved.Status.Should().Be(OrderStatus.Pending);
-        saved.TotalAmount.Should().Be(300m);
+        saved.TotalAmount.Should().Be(0m);
         saved.Items.Should().ContainSingle();
 
         var outbox = await context.OutboxMessages.Where(m => m.AggregateId == order.Id).ToListAsync();
@@ -46,7 +46,7 @@ public class OrderPersistenceTests(PostgresFixture db)
             await first.SaveChangesAsync();
         }
 
-        var order = Order.Create(Guid.NewGuid(), [new OrderLineInput(Guid.NewGuid(), 1, 10m)]);
+        var order = Order.Create(Guid.NewGuid(), [new OrderLineInput(Guid.NewGuid(), 1)]);
         await using (var second = db.CreateDbContext())
         {
             second.Orders.Add(order);
@@ -61,6 +61,25 @@ public class OrderPersistenceTests(PostgresFixture db)
             .Should().BeFalse("olay kaydedilemediyse sipariş de kaydedilmemeli");
     }
 
+    [Fact]
+    public async Task Stok_ayrilinca_fiyatlar_ve_tutar_kaydedilir()
+    {
+        var order = await db.CreateOrderAsync(quantity: 2);
+
+        await using (var context = db.CreateDbContext())
+        {
+            var loaded = await context.Orders.Include(o => o.Items).SingleAsync(o => o.Id == order.Id);
+            loaded.MarkStockReserved(PostgresFixture.PricesFor(loaded, unitPrice: 150m));
+            await context.SaveChangesAsync();
+        }
+
+        await using var check = db.CreateDbContext();
+        var saved = await check.Orders.Include(o => o.Items).SingleAsync(o => o.Id == order.Id);
+        saved.Status.Should().Be(OrderStatus.StockReserved);
+        saved.Items.Single().UnitPrice.Should().Be(150m);
+        saved.TotalAmount.Should().Be(300m);
+    }
+
     // ---------- Optimistic concurrency (xmin) ----------
 
     [Fact]
@@ -69,10 +88,10 @@ public class OrderPersistenceTests(PostgresFixture db)
         var order = await db.CreateOrderAsync();
 
         await using var context = db.CreateDbContext();
-        var loaded = await context.Orders.SingleAsync(o => o.Id == order.Id);
+        var loaded = await context.Orders.Include(o => o.Items).SingleAsync(o => o.Id == order.Id);
         var before = loaded.Version;
 
-        loaded.MarkStockReserved();
+        loaded.MarkStockReserved(PostgresFixture.PricesFor(loaded));
         await context.SaveChangesAsync();
 
         loaded.Version.Should().NotBe(before);
@@ -91,7 +110,7 @@ public class OrderPersistenceTests(PostgresFixture db)
         var byWatcher = await timeoutWatcher.Orders.Include(o => o.Items).SingleAsync(o => o.Id == order.Id);
 
         // Consumer önce davranıp kaydediyor.
-        byConsumer.MarkStockReserved();
+        byConsumer.MarkStockReserved(PostgresFixture.PricesFor(byConsumer));
         await consumer.SaveChangesAsync();
 
         // Zaman aşımı servisi eski bir kopyayı değiştirmeye çalışıyor.
@@ -113,8 +132,8 @@ public class OrderPersistenceTests(PostgresFixture db)
 
         await using (var context = db.CreateDbContext())
         {
-            var loaded = await context.Orders.SingleAsync(o => o.Id == order.Id);
-            loaded.MarkStockReserved();
+            var loaded = await context.Orders.Include(o => o.Items).SingleAsync(o => o.Id == order.Id);
+            loaded.MarkStockReserved(PostgresFixture.PricesFor(loaded));
             loaded.Confirm();
             await context.SaveChangesAsync();
         }

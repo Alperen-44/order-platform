@@ -1,6 +1,7 @@
 namespace OrderService.Domain;
 
-public sealed record OrderLineInput(Guid ProductId, int Quantity, decimal UnitPrice);
+/// <summary>Sipariş kalemi: yalnızca ürün ve adet. Fiyatı istemci değil Inventory belirler.</summary>
+public sealed record OrderLineInput(Guid ProductId, int Quantity);
 
 /// <summary>
 /// Sipariş aggregate'i. Durum yalnızca bu sınıfın metotlarıyla değişir;
@@ -15,6 +16,8 @@ public class Order
     public Guid Id { get; private set; }
     public Guid CustomerId { get; private set; }
     public OrderStatus Status { get; private set; }
+
+    /// <summary>Stok ayrılana kadar 0; MarkStockReserved Inventory'nin fiyatlarıyla hesaplar.</summary>
     public decimal TotalAmount { get; private set; }
     public string? CancellationReason { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
@@ -42,13 +45,12 @@ public class Order
 
         foreach (var line in lines)
         {
-            order._items.Add(new OrderItem(order.Id, line.ProductId, line.Quantity, line.UnitPrice));
+            order._items.Add(new OrderItem(order.Id, line.ProductId, line.Quantity));
         }
 
         if (order._items.Count == 0)
             throw new InvalidOperationException("Sipariş en az bir kalem içermelidir.");
 
-        order.TotalAmount = order._items.Sum(i => i.Quantity * i.UnitPrice);
         return order;
     }
 
@@ -56,11 +58,28 @@ public class Order
     // Her metot geçişin yapılıp yapılmadığını döner. Sırası karışmış ya da geç gelmiş bir olay
     // (ör. zaman aşımından sonra gelen PaymentCompleted) false döner ve durumu değiştiremez.
 
-    /// <summary>Pending → StockReserved (sırada ödeme var)</summary>
-    public bool MarkStockReserved()
+    /// <summary>
+    /// Pending → StockReserved (sırada ödeme var). Inventory'nin stok ayırırken bildirdiği birim
+    /// fiyatlar kalemlere yazılır ve tutar bu fiyatlarla hesaplanır. Ödeme bu tutarla istenir.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Bir kalemin fiyatı gelmediyse: olay sözleşmesi bozuk.</exception>
+    public bool MarkStockReserved(IReadOnlyDictionary<Guid, decimal> unitPrices)
     {
         if (Status != OrderStatus.Pending) return false;
 
+        // Önce hepsini doğrula, sonra yaz: yarım fiyatlanmış sipariş kalmasın.
+        foreach (var item in _items)
+        {
+            if (!unitPrices.TryGetValue(item.ProductId, out var price))
+                throw new InvalidOperationException($"No price received for product {item.ProductId}.");
+            if (price < 0)
+                throw new InvalidOperationException($"Negative price received for product {item.ProductId}.");
+        }
+
+        foreach (var item in _items)
+            item.SetUnitPrice(unitPrices[item.ProductId]);
+
+        TotalAmount = _items.Sum(i => i.Quantity * i.UnitPrice);
         Status = OrderStatus.StockReserved;
         UpdatedAt = DateTimeOffset.UtcNow; // zaman aşımı sayacı buradan başlar
         return true;

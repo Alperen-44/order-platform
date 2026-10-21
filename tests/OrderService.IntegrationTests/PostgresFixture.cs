@@ -34,9 +34,9 @@ public sealed class PostgresFixture : IAsyncLifetime
             .Options);
 
     /// <summary>POST /orders'ın yaptığı gibi: sipariş + OrderCreated olayı tek SaveChanges'ta.</summary>
-    public async Task<Order> CreateOrderAsync(decimal unitPrice = 100m, int quantity = 2)
+    public async Task<Order> CreateOrderAsync(int quantity = 2)
     {
-        var order = Order.Create(Guid.NewGuid(), [new OrderLineInput(Guid.NewGuid(), quantity, unitPrice)]);
+        var order = Order.Create(Guid.NewGuid(), [new OrderLineInput(Guid.NewGuid(), quantity)]);
 
         await using var db = CreateDbContext();
         db.Orders.Add(order);
@@ -45,6 +45,10 @@ public sealed class PostgresFixture : IAsyncLifetime
 
         return order;
     }
+
+    /// <summary>Inventory'nin StockReserved olayında göndereceği fiyatlar: her ürün aynı fiyattan.</summary>
+    public static Dictionary<Guid, decimal> PricesFor(Order order, decimal unitPrice = 100m) =>
+        order.Items.ToDictionary(i => i.ProductId, _ => unitPrice);
 }
 
 [CollectionDefinition(Name)]

@@ -33,7 +33,7 @@ export function timelineSteps(order: Order): Step[] {
     case "StockReserved":
       return [
         received,
-        { title: "Stok ayrıldı", state: "done" },
+        { title: "Stok ayrıldı", state: "done", note: "Tutar güncel fiyatlarla hesaplandı" },
         { title: "Ödeme alınıyor", state: "active", note: "Payment Service ödemeyi işliyor" },
         { title: "Onay", state: "waiting" },
       ];

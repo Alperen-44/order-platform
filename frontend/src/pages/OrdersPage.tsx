@@ -75,7 +75,9 @@ function OrderList() {
               <span className={`inline-block rounded-full px-3 py-1 text-sm font-semibold ${status.className}`}>
                 {status.label}
               </span>
-              <p className="mt-2 font-display text-lg font-bold tabular-nums">{formatMoney(order.totalAmount)}</p>
+              <p className="mt-2 font-display text-lg font-bold tabular-nums">
+                {order.totalAmount > 0 ? formatMoney(order.totalAmount) : "—"}
+              </p>
             </div>
           </li>
         );

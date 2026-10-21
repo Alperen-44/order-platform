@@ -11,8 +11,8 @@ public class CreateOrderRequestTests
     private static CreateOrderRequest Request(params CreateOrderItemRequest[] items) =>
         new(Customer, items.ToList());
 
-    private static CreateOrderItemRequest Item(int quantity = 1, decimal unitPrice = 100m, Guid? productId = null) =>
-        new(productId ?? Product, quantity, unitPrice);
+    private static CreateOrderItemRequest Item(int quantity = 1, Guid? productId = null) =>
+        new(productId ?? Product, quantity);
 
     [Fact]
     public void Gecerli_istek_hata_dondurmez()
@@ -20,12 +20,6 @@ public class CreateOrderRequestTests
         var errors = Request(Item(), Item(productId: Guid.NewGuid())).Validate();
 
         errors.Should().BeEmpty();
-    }
-
-    [Fact]
-    public void Ucretsiz_urun_gecerlidir()
-    {
-        Request(Item(unitPrice: 0m)).Validate().Should().BeEmpty();
     }
 
     [Fact]
@@ -59,12 +53,6 @@ public class CreateOrderRequestTests
     }
 
     [Fact]
-    public void Fiyat_negatif_olamaz()
-    {
-        Request(Item(unitPrice: -5m)).Validate().Should().ContainKey("items.unitPrice");
-    }
-
-    [Fact]
     public void Urun_bos_olamaz()
     {
         Request(Item(productId: Guid.Empty)).Validate().Should().ContainKey("items.productId");
@@ -79,8 +67,8 @@ public class CreateOrderRequestTests
     [Fact]
     public void Birden_fazla_hata_ayni_anda_raporlanir()
     {
-        var errors = new CreateOrderRequest(Guid.Empty, [Item(quantity: 0, unitPrice: -1m)]).Validate();
+        var errors = new CreateOrderRequest(Guid.Empty, [Item(quantity: 0)]).Validate();
 
-        errors.Keys.Should().Contain(new[] { "customerId", "items.quantity", "items.unitPrice" });
+        errors.Keys.Should().Contain(new[] { "customerId", "items.quantity" });
     }
 }
