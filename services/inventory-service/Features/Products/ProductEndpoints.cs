@@ -4,13 +4,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InventoryService.Features.Products;
 
-public sealed record CreateProductRequest(string? Sku, string? Name, int InitialStock);
+public sealed record CreateProductRequest(string? Sku, string? Name, int InitialStock, decimal Price = 0);
 
 public sealed record ProductResponse(
-    Guid ProductId, string Sku, string Name, int Available, int Reserved, DateTimeOffset UpdatedAt)
+    Guid ProductId, string Sku, string Name, decimal Price, int Available, int Reserved, DateTimeOffset UpdatedAt)
 {
     public static ProductResponse From(StockItem s) =>
-        new(s.ProductId, s.Sku, s.Name, s.Available, s.Reserved, s.UpdatedAt);
+        new(s.ProductId, s.Sku, s.Name, s.Price, s.Available, s.Reserved, s.UpdatedAt);
 }
 
 public static class ProductEndpoints
@@ -43,9 +43,10 @@ public static class ProductEndpoints
         if (string.IsNullOrWhiteSpace(request.Sku)) errors["sku"] = ["sku zorunludur."];
         if (string.IsNullOrWhiteSpace(request.Name)) errors["name"] = ["name zorunludur."];
         if (request.InitialStock < 0) errors["initialStock"] = ["initialStock negatif olamaz."];
+        if (request.Price < 0) errors["price"] = ["price negatif olamaz."];
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-        var item = new StockItem(Guid.NewGuid(), request.Sku!.Trim(), request.Name!.Trim(), request.InitialStock);
+        var item = new StockItem(Guid.NewGuid(), request.Sku!.Trim(), request.Name!.Trim(), request.InitialStock, request.Price);
         db.Stock.Add(item);
 
         try

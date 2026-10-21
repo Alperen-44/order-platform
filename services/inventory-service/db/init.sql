@@ -4,6 +4,7 @@ CREATE TABLE stock (
     product_id  UUID PRIMARY KEY,
     sku         VARCHAR(64)  NOT NULL UNIQUE,
     name        VARCHAR(200) NOT NULL,
+    price       NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (price >= 0),
     available   INT          NOT NULL CHECK (available >= 0),  -- son savunma hattı: stok asla eksiye düşemez
     reserved    INT          NOT NULL CHECK (reserved >= 0),
     updated_at  TIMESTAMPTZ  NOT NULL
@@ -47,7 +48,7 @@ CREATE TABLE processed_events (
 );
 
 -- Deneme verisi. Sabit ID'ler sayesinde scriptlerde ve Swagger'da kolayca kullanılır.
-INSERT INTO stock (product_id, sku, name, available, reserved, updated_at) VALUES
-    ('11111111-1111-1111-1111-111111111111', 'KB-MECH-01',  'Mekanik Klavye',              50,  0, now()),
-    ('22222222-2222-2222-2222-222222222222', 'MS-WL-01',    'Kablosuz Mouse',             100,  0, now()),
-    ('33333333-3333-3333-3333-333333333333', 'HP-LTD-01',   'Sınırlı Sayıda Kulaklık',      1,  0, now());
+INSERT INTO stock (product_id, sku, name, price, available, reserved, updated_at) VALUES
+    ('11111111-1111-1111-1111-111111111111', 'KB-MECH-01',  'Mekanik Klavye',             1500.00,  50,  0, now()),
+    ('22222222-2222-2222-2222-222222222222', 'MS-WL-01',    'Kablosuz Mouse',              650.00, 100,  0, now()),
+    ('33333333-3333-3333-3333-333333333333', 'HP-LTD-01',   'Sınırlı Sayıda Kulaklık',    4200.00,   1,  0, now());

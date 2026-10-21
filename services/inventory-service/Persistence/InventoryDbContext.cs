@@ -19,6 +19,7 @@ public class InventoryDbContext(DbContextOptions<InventoryDbContext> options) : 
             e.HasKey(s => s.ProductId);
             e.Property(s => s.Sku).HasMaxLength(64);
             e.Property(s => s.Name).HasMaxLength(200);
+            e.Property(s => s.Price).HasPrecision(12, 2);
             e.HasIndex(s => s.Sku).IsUnique();
         });
 
